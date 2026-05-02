@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anon</title>
+    <link rel="stylesheet" href="https://unpkg.com/oat.ink/dist/oat.min.css">
+    <script src="https://unpkg.com/oat.ink/dist/oat.min.js" defer></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #fff;
+            color: #000;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            padding: 40px 20px;
+            background: #000;
+            color: white;
+            border-radius: 0 0 20px 20px;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            font-size: 3rem;
+            margin: 0;
+            font-weight: 700;
+        }
+        .header .tagline {
+            font-size: 1.2rem;
+            opacity: 0.8;
+            margin-top: 10px;
+        }
+        .start-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 16px 40px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            background: white;
+            color: black;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(255,255,255,0.2);
+        }
+        .start-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255,255,255,0.4);
+        }
+        .tabs-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            background: white;
+            padding: 8px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 15px 20px;
+            border: none;
+            background: #f0f0f0;
+            color: #666;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: 8px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .tab-btn.active {
+            background: #000;
+            color: white;
+        }
+        .tab-btn:hover:not(.active) {
+            background: #e0e0e0;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .card-icon {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            color: white;
+            border-radius: 10px;
+        }
+        .card h3 {
+            margin: 0;
+            font-size: 1.3rem;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+        .form-hint {
+            color: #888;
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
+        .file-drop-zone {
+            border: 2px dashed #ccc;
+            border-radius: 12px;
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .file-drop-zone:hover {
+            border-color: #000;
+            background: #f5f5f5;
+        }
+        .file-drop-zone.has-file {
+            border-style: solid;
+            border-color: #4caf50;
+            background: #f0fff0;
+        }
+        .file-drop-zone input {
+            display: none;
+        }
+        .file-drop-zone svg {
+            margin-bottom: 10px;
+            opacity: 0.5;
+        }
+        .file-drop-zone p {
+            color: #888;
+            margin: 0;
+        }
+        .file-drop-zone .filename {
+            color: #333;
+            font-weight: 500;
+        }
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+        .btn {
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1rem;
+            text-decoration: none;
+        }
+        .btn-primary {
+            background: #000;
+            color: white;
+            border: none;
+        }
+        .btn-primary:hover {
+            background: #333;
+        }
+        .btn-secondary {
+            background: white;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+        .btn-secondary:hover {
+            background: #f5f5f5;
+        }
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .entities-detected {
+            background: #f0f0f0;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+        }
+        .entities-detected h4 {
+            margin: 0 0 12px 0;
+            color: #666;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+        .entity-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .entity-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: #000;
+            color: white;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+        .entity-tag .count {
+            background: rgba(255,255,255,0.25);
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.8rem;
+        }
+        .success-message {
+            background: #4caf50;
+            color: white;
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .result-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin: 20px 0;
+            color: #888;
+        }
+        .divider::before, .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #ddd;
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        .loading-overlay.hidden {
+            display: none;
+        }
+        .loading-card {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            text-align: center;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #000;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-family: monospace;
+            resize: vertical;
+        }
+        input[type="number"] {
+            width: 120px;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+        .inline-form {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Anon</h1>
+        <p class="tagline">Your data stays yours.</p>
+    </div>
+
+    <div class="container">
+        <div class="tabs-container">
+            <button class="tab-btn active" onclick="switchTab('anonymize')" id="tab-anonymize">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                Anonymize
+            </button>
+            <button class="tab-btn" onclick="switchTab('restore')" id="tab-restore">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                Restore
+            </button>
+        </div>
+
+        <div id="anonymize-tab" class="tab-content active">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                    </div>
+                    <h3>Anonymize Your Data</h3>
+                </div>
+                <p class="form-hint">Upload a file to automatically detect and anonymize sensitive information.</p>
+                
+                <div class="form-group">
+                    <label>Upload File (.xlsx, .docx, .pdf)</label>
+                    <div class="file-drop-zone" id="dropZone" onclick="document.getElementById('anonymizeFile').click()">
+                        <input type="file" id="anonymizeFile" accept=".xlsx,.docx,.pdf" onchange="handleFileSelect(this)">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                        <p>Click or drag file here</p>
+                    </div>
+                </div>
+
+                <div id="fileInfo" class="hidden">
+                    <div class="entities-detected">
+                        <h4>Detected Entities</h4>
+                        <div class="entity-tags" id="detectedEntities"></div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Number Multiplier</label>
+                    <div class="inline-form">
+                        <input type="number" id="multiplier" value="1.0" step="0.1" min="0">
+                        <span class="form-hint">Multiply all numbers by this factor</span>
+                    </div>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="anonymizeFile()">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                        Anonymize File
+                    </button>
+                </div>
+
+                <div id="anonymizeResult" class="hidden">
+                    <div class="result-section">
+                        <div class="success-message" id="successMessage"></div>
+                        
+                        <div class="btn-group">
+                            <button class="btn btn-secondary" onclick="downloadFile('anon')">Download Anon File</button>
+                            <button class="btn btn-secondary" onclick="downloadFile('key')">Download Key File</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="restore-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                    </div>
+                    <h3>Restore Original Data</h3>
+                </div>
+                <p class="form-hint">Upload the anonymized file and the .anonkey.json key file to restore original data.</p>
+                
+                <div class="form-group">
+                    <label>Anonymized File</label>
+                    <div class="file-drop-zone" id="restoreDropZone" onclick="document.getElementById('restoreFile').click()">
+                        <input type="file" id="restoreFile" accept=".xlsx,.docx,.pdf,.txt" onchange="handleRestoreFileSelect(this)">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                        <p>Choose anonymized file</p>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Key File (.anonkey.json)</label>
+                    <div class="file-drop-zone" id="keyDropZone" onclick="document.getElementById('keyFile').click()">
+                        <input type="file" id="keyFile" accept=".json" onchange="handleKeyFileSelect(this)">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+                        <p>Choose key file</p>
+                    </div>
+                </div>
+
+                <div class="divider">OR</div>
+
+                <div class="form-group">
+                    <label>Paste Raw Text to Restore</label>
+                    <textarea id="rawText" placeholder="Paste anonymized text here..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Key File for Text</label>
+                    <div class="file-drop-zone" id="rawTextKeyDropZone" onclick="document.getElementById('rawTextKeyFile').click()">
+                        <input type="file" id="rawTextKeyFile" accept=".json" onchange="handleRawTextKeyFileSelect(this)">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+                        <p>Choose key file</p>
+                    </div>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="restoreFile()">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                        Restore Data
+                    </button>
+                </div>
+
+                <div id="restoreResult" class="hidden">
+                    <div class="result-section">
+                        <div class="success-message" id="restoreSuccessMessage"></div>
+                        
+                        <div id="downloadSection" class="hidden">
+                            <div class="btn-group">
+                                <button class="btn btn-secondary" onclick="downloadFile('restored')">Download Restored File</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="loading-overlay hidden" id="loadingOverlay">
+        <div class="loading-card">
+            <div class="spinner"></div>
+            <div>Processing file...</div>
+        </div>
+    </div>
+
+    <script>
+        let currentAnonFilename = '';
+        let currentKeyFilename = '';
+        let currentRestoredFilename = '';
+        let currentEntityMapping = {};
+        let detectedEntities = {};
+        let selectedRestoreFile = null;
+        let selectedKeyFile = null;
+        let selectedRawTextKeyFile = null;
+
+        function scrollToTabs() {
+            document.querySelector('.tabs-container').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById('tab-' + tabName).classList.add('active');
+            document.getElementById(tabName + '-tab').classList.add('active');
+        }
+
+        let selectedFile = null;
+
+        function handleFileSelect(input) {
+            const dropZone = document.getElementById('dropZone');
+            
+            if (input.files && input.files[0]) {
+                selectedFile = input.files[0];
+                dropZone.classList.add('has-file');
+                dropZone.innerHTML = `
+                    <input type="file" id="anonymizeFile" accept=".xlsx,.docx,.pdf" onchange="handleFileSelect(this)">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                    <p class="filename">${selectedFile.name}</p>
+                `;
+                detectEntities(selectedFile);
+            }
+        }
+
+        function handleRestoreFileSelect(input) {
+            const dropZone = document.getElementById('restoreDropZone');
+            
+            if (input.files && input.files[0]) {
+                selectedRestoreFile = input.files[0];
+                dropZone.classList.add('has-file');
+                dropZone.innerHTML = `
+                    <input type="file" id="restoreFile" accept=".xlsx,.docx,.pdf,.txt" onchange="handleRestoreFileSelect(this)">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+                    <p class="filename">${selectedRestoreFile.name}</p>
+                `;
+            }
+        }
+
+        function handleKeyFileSelect(input) {
+            const dropZone = document.getElementById('keyDropZone');
+            
+            if (input.files && input.files[0]) {
+                selectedKeyFile = input.files[0];
+                dropZone.classList.add('has-file');
+                dropZone.innerHTML = `
+                    <input type="file" id="keyFile" accept=".json" onchange="handleKeyFileSelect(this)">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+                    <p class="filename">${selectedKeyFile.name}</p>
+                `;
+            }
+        }
+
+        function handleRawTextKeyFileSelect(input) {
+            const dropZone = document.getElementById('rawTextKeyDropZone');
+            
+            if (input.files && input.files[0]) {
+                selectedRawTextKeyFile = input.files[0];
+                dropZone.classList.add('has-file');
+                dropZone.innerHTML = `
+                    <input type="file" id="rawTextKeyFile" accept=".json" onchange="handleRawTextKeyFileSelect(this)">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
+                    <p class="filename">${selectedRawTextKeyFile.name}</p>
+                `;
+            }
+        }
+
+        async function detectEntities(file) {
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                const response = await fetch('/api/detect', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        detectedEntities = data.entities;
+                        displayDetectedEntities();
+                    }
+                }
+            } catch (error) {
+                console.error('Detection failed:', error);
+            }
+        }
+
+        function displayDetectedEntities() {
+            const container = document.getElementById('detectedEntities');
+            const fileInfo = document.getElementById('fileInfo');
+            
+            if (Object.keys(detectedEntities).length === 0 || Object.values(detectedEntities).every(v => v === 0)) {
+                fileInfo.classList.add('hidden');
+                return;
+            }
+            
+            fileInfo.classList.remove('hidden');
+            container.innerHTML = '';
+            
+            for (const [type, count] of Object.entries(detectedEntities)) {
+                if (count > 0) {
+                    const tag = document.createElement('span');
+                    tag.className = 'entity-tag';
+                    tag.innerHTML = `${type} <span class="count">${count}</span>`;
+                    container.appendChild(tag);
+                }
+            }
+        }
+
+        function showLoading(show) {
+            const overlay = document.getElementById('loadingOverlay');
+            if (show) {
+                overlay.classList.remove('hidden');
+            } else {
+                overlay.classList.add('hidden');
+            }
+        }
+
+        async function anonymizeFile() {
+            const multiplierInput = document.getElementById('multiplier');
+            
+            if (!selectedFile) {
+                alert('Please select a file');
+                return;
+            }
+
+            const file = selectedFile;
+            const multiplier = parseFloat(multiplierInput.value) || 1.0;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('multiplier', multiplier);
+            formData.append('anonymize_person', true);
+            formData.append('anonymize_org', true);
+            formData.append('anonymize_city', true);
+            formData.append('anonymize_date', true);
+            formData.append('anonymize_money', true);
+
+            showLoading(true);
+
+            try {
+                const response = await fetch('/api/anonymize', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    let errorMsg = 'Anonymization failed';
+                    try {
+                        const errorData = JSON.parse(errorText);
+                        errorMsg = errorData.detail || errorMsg;
+                    } catch {}
+                    alert('Error: ' + errorMsg);
+                    showLoading(false);
+                    return;
+                }
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentAnonFilename = data.anon_filename;
+                    currentKeyFilename = data.key_filename;
+                    currentEntityMapping = data.entity_mapping;
+                    
+                    document.getElementById('successMessage').textContent = data.message;
+                    document.getElementById('anonymizeResult').classList.remove('hidden');
+                    alert('File anonymized successfully!');
+                } else {
+                    alert(data.detail || 'Anonymization failed');
+                }
+            } catch (error) {
+                alert('An error occurred: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function downloadFile(type) {
+            let filename = '';
+            if (type === 'anon') {
+                filename = currentAnonFilename;
+            } else if (type === 'key') {
+                filename = currentKeyFilename;
+            } else if (type === 'restored') {
+                filename = currentRestoredFilename;
+            }
+
+            if (!filename) {
+                alert('No file to download');
+                return;
+            }
+
+            const link = document.createElement('a');
+            link.href = `/api/download/${encodeURIComponent(filename)}`;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        async function restoreFile() {
+            const rawText = document.getElementById('rawText').value;
+            
+            const hasFile = selectedRestoreFile;
+            const hasKeyFile = selectedKeyFile;
+            const hasRawText = rawText.trim();
+            const hasRawTextKeyFile = selectedRawTextKeyFile;
+            
+            if ((!hasFile || !hasKeyFile) && (!hasRawText || !hasRawTextKeyFile)) {
+                alert('Please provide files or raw text with key file');
+                return;
+            }
+
+            const formData = new FormData();
+            
+            if (hasRawText && hasRawTextKeyFile) {
+                formData.append('raw_text', rawText);
+                formData.append('key_file', selectedRawTextKeyFile);
+            } else {
+                if (!hasFile) {
+                    alert('Please select a file to restore');
+                    return;
+                }
+                if (!hasKeyFile) {
+                    alert('Please select a key file');
+                    return;
+                }
+                formData.append('file', selectedRestoreFile);
+                formData.append('key_file', selectedKeyFile);
+            }
+
+            showLoading(true);
+
+            try {
+                const response = await fetch('/api/restore', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('restoreSuccessMessage').textContent = data.message;
+                    document.getElementById('restoreResult').classList.remove('hidden');
+                    
+                    if (data.restored_filename) {
+                        currentRestoredFilename = data.restored_filename;
+                        document.getElementById('downloadSection').classList.remove('hidden');
+                    }
+                    
+                    alert('Data restored successfully!');
+                } else {
+                    alert(data.detail || 'Restore failed');
+                }
+            } catch (error) {
+                alert('An error occurred: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        document.getElementById('dropZone').addEventListener('dragover', function(e) {
+            e.preventDefault();
+            this.style.borderColor = '#000';
+            this.style.background = '#f5f5f5';
+        });
+
+        document.getElementById('dropZone').addEventListener('dragleave', function(e) {
+            this.style.borderColor = '#ccc';
+            this.style.background = 'transparent';
+        });
+
+        document.getElementById('dropZone').addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.style.borderColor = '#ccc';
+            this.style.background = 'transparent';
+            const input = document.getElementById('anonymizeFile');
+            if (e.dataTransfer.files.length) {
+                input.files = e.dataTransfer.files;
+                handleFileSelect(input);
+            }
+        });
+    </script>
+</body>
+</html>
