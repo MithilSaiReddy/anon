@@ -6,8 +6,3 @@ openpyxl
 pdfplumber
 reportlab
 python-multipart
-jinja2
-transformers
-torch
-llama-cpp-python
-ctranslate2
