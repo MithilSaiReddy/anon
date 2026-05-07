@@ -6,8 +6,9 @@ from docx import Document
 from docx.text.paragraph import Paragraph
 import openpyxl
 import pdfplumber
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
+import fitz
+from pptx import Presentation
+from pptx.util import Emu
 
 
 def extract_text_from_docx(file_bytes: bytes) -> Tuple[str, Document]:
@@ -175,13 +176,28 @@ def anonymize_xlsx(wb: openpyxl.Workbook, entity_map: Dict[str, str], multiplier
     return {"entities": total_replacements, "numbers": len(number_map)}, number_map
 
 
-def anonymize_pdf(pages: List[str], entity_map: Dict[str, str], multiplier: float = 1.0) -> Tuple[Dict[str, Any], List[str]]:
+def extract_text_from_pptx(file_bytes: bytes) -> Tuple[str, Presentation]:
+    prs = Presentation(io.BytesIO(file_bytes))
+    full_text = []
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for para in shape.text_frame.paragraphs:
+                    full_text.append(para.text)
+            if shape.has_table:
+                for row in shape.table.rows:
+                    for cell in row.cells:
+                        for para in cell.text_frame.paragraphs:
+                            full_text.append(para.text)
+    return "\n".join(full_text), prs
+
+
+def anonymize_pptx(prs: Presentation, entity_map: Dict[str, str], multiplier: float = 1.0) -> Dict[str, Any]:
     number_map = {}
     total_replacements = 0
-    new_pages = []
 
-    for page_text in pages:
-        text = page_text
+    def process_text(text: str) -> str:
+        nonlocal total_replacements
         for placeholder, original in entity_map.items():
             if original in text:
                 text = text.replace(original, placeholder)
@@ -201,30 +217,222 @@ def anonymize_pdf(pages: List[str], entity_map: Dict[str, str], multiplier: floa
                     return num_str
 
             text = re.sub(r'\b\d+\.?\d+\b', multiply_number, text)
+        return text
 
-        new_pages.append(text)
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for para in shape.text_frame.paragraphs:
+                    for run in para.runs:
+                        run.text = process_text(run.text)
+            if shape.has_table:
+                for row in shape.table.rows:
+                    for cell in row.cells:
+                        for para in cell.text_frame.paragraphs:
+                            for run in para.runs:
+                                run.text = process_text(run.text)
 
-    return {"entities": total_replacements, "numbers": len(number_map)}, new_pages, number_map
+    return {"entities": total_replacements, "numbers": len(number_map)}, number_map
+
+
+def restore_pptx(prs: Presentation, key_data: Dict[str, Any]) -> Dict[str, int]:
+    entity_map = key_data.get("entities", {})
+    number_map = key_data.get("number_mappings", {})
+    multiplier = key_data.get("multiplier", 1.0)
+
+    restore_count = {"entities": 0, "numbers": 0}
+
+    def process_text(text: str) -> str:
+        for placeholder, original in entity_map.items():
+            if placeholder in text:
+                text = text.replace(placeholder, original)
+                restore_count["entities"] += 1
+
+        if number_map:
+            for orig_str, new_val in number_map.items():
+                if str(new_val) in text:
+                    text = text.replace(str(new_val), orig_str)
+                    restore_count["numbers"] += 1
+        elif multiplier != 1.0:
+            def divide_number(match):
+                try:
+                    num = float(match.group())
+                    result = round(num / multiplier, 2)
+                    if result == int(result):
+                        return str(int(result))
+                    return str(result)
+                except ValueError:
+                    return match.group()
+
+            text = re.sub(r'\b\d+\.?\d+\b', divide_number, text)
+        return text
+
+    for slide in prs.slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for para in shape.text_frame.paragraphs:
+                    for run in para.runs:
+                        run.text = process_text(run.text)
+            if shape.has_table:
+                for row in shape.table.rows:
+                    for cell in row.cells:
+                        for para in cell.text_frame.paragraphs:
+                            for run in para.runs:
+                                run.text = process_text(run.text)
+
+    return restore_count
+
+
+def anonymize_pdf(file_bytes: bytes, entity_map: Dict[str, str], multiplier: float = 1.0) -> Tuple[Dict[str, Any], bytes]:
+    number_map = {}
+    total_replacements = 0
+
+    pdf = fitz.open(stream=file_bytes, filetype="pdf")
+
+    all_replacements = []
+
+    for placeholder, original in entity_map.items():
+        if not original or len(original) < 2:
+            continue
+        for page_num in range(len(pdf)):
+            page = pdf[page_num]
+            instances = page.search_for(original)
+            for inst in instances:
+                all_replacements.append((page_num, inst, original, placeholder))
+
+    if multiplier and multiplier != 1.0:
+        for page_num in range(len(pdf)):
+            page = pdf[page_num]
+            words = page.get_text("words")
+            for word_info in words:
+                x0, y0, x1, y1, word_text, block_no, line_no, word_no = word_info
+                if re.match(r'^\d+\.?\d+$', word_text):
+                    try:
+                        num = float(word_text)
+                        new_num = round(num * multiplier, 2)
+                        number_map[word_text] = new_num
+                        if new_num == int(new_num):
+                            new_text = str(int(new_num))
+                        else:
+                            new_text = str(new_num)
+                        rect = fitz.Rect(x0, y0, x1, y1)
+                        all_replacements.append((page_num, rect, word_text, new_text))
+                    except ValueError:
+                        pass
+
+    processed_positions = set()
+
+    for page_num, rect, old_text, new_text in all_replacements:
+        pos_key = (page_num, round(rect.x0, 1), round(rect.y0, 1))
+        if pos_key in processed_positions:
+            continue
+        processed_positions.add(pos_key)
+
+        page = pdf[page_num]
+        page.add_redact_annot(rect, text=new_text, fill=(1, 1, 1), fontsize=None)
+        total_replacements += 1
+
+    for page_num in range(len(pdf)):
+        pdf[page_num].apply_redactions()
+
+    output_buffer = io.BytesIO()
+    pdf.save(output_buffer)
+    output_buffer.seek(0)
+    pdf_bytes = output_buffer.getvalue()
+    pdf.close()
+
+    return {"entities": total_replacements, "numbers": len(number_map)}, pdf_bytes, number_map
+
+
+def restore_pdf(file_bytes: bytes, key_data: Dict[str, Any]) -> Tuple[Dict[str, int], bytes]:
+    entity_map = key_data.get("entities", {})
+    number_map = key_data.get("number_mappings", {})
+    multiplier = key_data.get("multiplier", 1.0)
+
+    restore_count = {"entities": 0, "numbers": 0}
+
+    pdf = fitz.open(stream=file_bytes, filetype="pdf")
+
+    all_replacements = []
+
+    for placeholder, original in entity_map.items():
+        for page_num in range(len(pdf)):
+            page = pdf[page_num]
+            instances = page.search_for(placeholder)
+            for inst in instances:
+                all_replacements.append((page_num, inst, placeholder, original))
+
+    if number_map:
+        for page_num in range(len(pdf)):
+            page = pdf[page_num]
+            words = page.get_text("words")
+            for word_info in words:
+                x0, y0, x1, y1, word_text, _, _, _ = word_info
+                for orig_str, new_val in number_map.items():
+                    if word_text.replace(",", "") == str(new_val).replace(",", ""):
+                        rect = fitz.Rect(x0, y0, x1, y1)
+                        all_replacements.append((page_num, rect, word_text, orig_str))
+    elif multiplier != 1.0:
+        for page_num in range(len(pdf)):
+            page = pdf[page_num]
+            words = page.get_text("words")
+            for word_info in words:
+                x0, y0, x1, y1, word_text, _, _, _ = word_info
+                if re.match(r'^\d+\.?\d+$', word_text):
+                    try:
+                        num = float(word_text)
+                        result = round(num / multiplier, 2)
+                        new_text = str(int(result)) if result == int(result) else str(result)
+                        rect = fitz.Rect(x0, y0, x1, y1)
+                        all_replacements.append((page_num, rect, word_text, new_text))
+                    except ValueError:
+                        pass
+
+    processed_positions = set()
+
+    for page_num, rect, old_text, new_text in all_replacements:
+        pos_key = (page_num, round(rect.x0, 1), round(rect.y0, 1))
+        if pos_key in processed_positions:
+            continue
+        processed_positions.add(pos_key)
+
+        page = pdf[page_num]
+        page.add_redact_annot(rect, text=new_text, fill=(1, 1, 1), fontsize=None)
+        if old_text in entity_map:
+            restore_count["entities"] += 1
+        else:
+            restore_count["numbers"] += 1
+
+    for page_num in range(len(pdf)):
+        pdf[page_num].apply_redactions()
+
+    output_buffer = io.BytesIO()
+    pdf.save(output_buffer)
+    output_buffer.seek(0)
+    pdf_bytes = output_buffer.getvalue()
+    pdf.close()
+
+    return restore_count, pdf_bytes
 
 
 def create_pdf_from_text(pages: List[str]) -> bytes:
-    buffer = io.BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
-
+    pdf = fitz.open()
     for page_text in pages:
-        y = height - 50
+        page = pdf.new_page()
+        rect = page.rect
+        tw = fitz.TextWriter(rect)
+        y = 50
         for line in page_text.split('\n'):
-            if y < 50:
-                c.showPage()
-                y = height - 50
-            c.drawString(50, y, line)
-            y -= 12
-        c.showPage()
+            if y > rect.height - 30:
+                break
+            tw.append((50, y), line)
+            y += 14
+        tw.write_text(page)
 
-    c.save()
-    buffer.seek(0)
-    return buffer.getvalue()
+    output_buffer = io.BytesIO()
+    pdf.save(output_buffer)
+    output_buffer.seek(0)
+    return output_buffer.getvalue()
 
 
 def restore_docx(doc: Document, key_data: Dict[str, Any]) -> Dict[str, int]:

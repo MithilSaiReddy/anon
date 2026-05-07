@@ -358,9 +358,9 @@
                 <p class="form-hint">Upload a file to automatically detect and anonymize sensitive information.</p>
                 
                 <div class="form-group">
-                    <label>Upload File (.xlsx, .docx, .pdf)</label>
+                    <label>Upload File (.xlsx, .docx, .pdf, .pptx)</label>
                     <div class="file-drop-zone" id="dropZone" onclick="document.getElementById('anonymizeFile').click()">
-                        <input type="file" id="anonymizeFile" accept=".xlsx,.docx,.pdf" onchange="handleFileSelect(this)">
+                        <input type="file" id="anonymizeFile" accept=".xlsx,.docx,.pdf,.pptx" onchange="handleFileSelect(this)">
                         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                         <p>Click or drag file here</p>
                     </div>
@@ -370,6 +370,21 @@
                     <div class="entities-detected">
                         <h4>Detected Entities</h4>
                         <div class="entity-tags" id="detectedEntities"></div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Entity Types to Anonymize</label>
+                    <div class="inline-form">
+                        <label style="display:inline-flex;align-items:center;gap:4px;font-weight:normal">
+                            <input type="checkbox" id="anonymizePerson" checked> Person
+                        </label>
+                        <label style="display:inline-flex;align-items:center;gap:4px;font-weight:normal">
+                            <input type="checkbox" id="anonymizeOrg" checked> Organization
+                        </label>
+                        <label style="display:inline-flex;align-items:center;gap:4px;font-weight:normal">
+                            <input type="checkbox" id="anonymizeCity" checked> Location
+                        </label>
                     </div>
                 </div>
 
@@ -414,7 +429,7 @@
                 <div class="form-group">
                     <label>Anonymized File</label>
                     <div class="file-drop-zone" id="restoreDropZone" onclick="document.getElementById('restoreFile').click()">
-                        <input type="file" id="restoreFile" accept=".xlsx,.docx,.pdf,.txt" onchange="handleRestoreFileSelect(this)">
+                    <input type="file" id="restoreFile" accept=".xlsx,.docx,.pdf,.pptx,.txt" onchange="handleRestoreFileSelect(this)">
                         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                         <p>Choose anonymized file</p>
                     </div>
@@ -504,7 +519,7 @@
                 selectedFile = input.files[0];
                 dropZone.classList.add('has-file');
                 dropZone.innerHTML = `
-                    <input type="file" id="anonymizeFile" accept=".xlsx,.docx,.pdf" onchange="handleFileSelect(this)">
+                    <input type="file" id="anonymizeFile" accept=".xlsx,.docx,.pdf,.pptx" onchange="handleFileSelect(this)">
                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
                     <p class="filename">${selectedFile.name}</p>
                 `;
@@ -519,7 +534,7 @@
                 selectedRestoreFile = input.files[0];
                 dropZone.classList.add('has-file');
                 dropZone.innerHTML = `
-                    <input type="file" id="restoreFile" accept=".xlsx,.docx,.pdf,.txt" onchange="handleRestoreFileSelect(this)">
+                    <input type="file" id="restoreFile" accept=".xlsx,.docx,.pdf,.pptx,.txt" onchange="handleRestoreFileSelect(this)">
                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
                     <p class="filename">${selectedRestoreFile.name}</p>
                 `;
@@ -621,11 +636,9 @@
             const formData = new FormData();
             formData.append('file', file);
             formData.append('multiplier', multiplier);
-            formData.append('anonymize_person', true);
-            formData.append('anonymize_org', true);
-            formData.append('anonymize_city', true);
-            formData.append('anonymize_date', true);
-            formData.append('anonymize_money', true);
+            formData.append('anonymize_person', document.getElementById('anonymizePerson').checked);
+            formData.append('anonymize_org', document.getElementById('anonymizeOrg').checked);
+            formData.append('anonymize_city', document.getElementById('anonymizeCity').checked);
 
             showLoading(true);
 

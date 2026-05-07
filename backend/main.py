@@ -20,9 +20,9 @@ from docx import Document
 from backend.anonymizer import create_anonymizer, Anonymizer
 from backend.restorer import create_restorer, Restorer
 from backend.file_handlers import (
-    extract_text_from_docx, extract_text_from_xlsx, extract_text_from_pdf,
-    anonymize_docx, anonymize_xlsx, anonymize_pdf, create_pdf_from_text,
-    restore_docx, restore_xlsx, restore_pdf_text
+    extract_text_from_docx, extract_text_from_xlsx, extract_text_from_pdf, extract_text_from_pptx,
+    anonymize_docx, anonymize_xlsx, anonymize_pdf, anonymize_pptx,
+    restore_docx, restore_xlsx, restore_pdf, restore_pptx
 )
 
 app = FastAPI()
@@ -48,7 +48,9 @@ async def startup():
     global anonymizer, restorer
     anonymizer = create_anonymizer()
     restorer = create_restorer()
-    print("Loading spaCy NER model...")
+    print("Loading GLiNER NER model...")
+    anonymizer.load_gliner()
+    print("Loading spaCy NER model (fallback)...")
     anonymizer.load_spacy()
     print("Server ready!")
 
@@ -61,7 +63,7 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "ner_loaded": anonymizer is not None and anonymizer.nlp is not None}
+    return {"status": "ok", "gliner_loaded": anonymizer is not None and anonymizer.nlp is not None, "spacy_loaded": anonymizer is not None and anonymizer.nlp_spacy is not None}
 
 
 @app.post("/api/detect")
@@ -80,6 +82,8 @@ async def detect_entities(file: UploadFile = File(...)):
             text, _ = extract_text_from_xlsx(file_bytes)
         elif file_ext == ".pdf":
             text, _ = extract_text_from_pdf(file_bytes)
+        elif file_ext == ".pptx":
+            text, _ = extract_text_from_pptx(file_bytes)
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ext}")
 
@@ -122,7 +126,7 @@ async def anonymize_file(
     entity_types = {
         "PERSON": anonymize_person,
         "ORG": anonymize_org,
-        "CITY": anonymize_city,
+        "LOC": anonymize_city,
     }
 
     try:
@@ -201,13 +205,41 @@ async def anonymize_file(
             text, pages = extract_text_from_pdf(file_bytes)
             entity_map, _, stats = anonymizer.anonymize(text, multiplier, entity_types)
 
-            counts, new_pages, number_map = anonymize_pdf(pages, entity_map, multiplier)
+            counts, pdf_bytes, number_map = anonymize_pdf(file_bytes, entity_map, multiplier)
 
-            pdf_bytes = create_pdf_from_text(new_pages)
             anon_filename = f"anon_{original_filename}"
             anon_path = TEMP_DIR / anon_filename
             with open(anon_path, "wb") as f:
                 f.write(pdf_bytes)
+
+            key_filename = f"{os.path.splitext(original_filename)[0]}.bridgekey.json"
+            key_data = anonymizer.create_bridge_key(original_filename, entity_map, multiplier)
+            key_data["number_mappings"] = number_map
+            key_path = TEMP_DIR / key_filename
+            with open(key_path, "w") as f:
+                json.dump(key_data, f, indent=2)
+
+            total_entities = stats["persons"] + stats["orgs"] + stats.get("locs", 0)
+            message = f"Anonymized {total_entities} entities, modified {counts['numbers']} numbers (x{multiplier})"
+
+            return JSONResponse({
+                "success": True,
+                "message": message,
+                "anon_filename": anon_filename,
+                "key_filename": key_filename,
+                "entity_mapping": entity_map,
+                "stats": stats,
+            })
+
+        elif file_ext == ".pptx":
+            text, prs = extract_text_from_pptx(file_bytes)
+            entity_map, _, stats = anonymizer.anonymize(text, multiplier, entity_types)
+
+            counts, number_map = anonymize_pptx(prs, entity_map, multiplier)
+
+            anon_filename = f"anon_{original_filename}"
+            anon_path = TEMP_DIR / anon_filename
+            prs.save(anon_path)
 
             key_filename = f"{os.path.splitext(original_filename)[0]}.bridgekey.json"
             key_data = anonymizer.create_bridge_key(original_filename, entity_map, multiplier)
@@ -327,14 +359,27 @@ async def restore_file(
             })
 
         elif file_ext == ".pdf":
-            text, pages = extract_text_from_pdf(file_bytes)
-            restore_counts, new_pages = restore_pdf_text(pages, key_data)
+            restore_counts, pdf_bytes = restore_pdf(file_bytes, key_data)
 
-            pdf_bytes = create_pdf_from_text(new_pages)
             restored_filename = f"restored_{original_filename}"
             restored_path = TEMP_DIR / restored_filename
             with open(restored_path, "wb") as f:
                 f.write(pdf_bytes)
+
+            return JSONResponse({
+                "success": True,
+                "message": f"Restored {restore_counts['entities']} entities, {restore_counts['numbers']} numbers",
+                "restored_filename": restored_filename,
+            })
+
+        elif file_ext == ".pptx":
+            from pptx import Presentation
+            prs = Presentation(io.BytesIO(file_bytes))
+            restore_counts = restore_pptx(prs, key_data)
+
+            restored_filename = f"restored_{original_filename}"
+            restored_path = TEMP_DIR / restored_filename
+            prs.save(restored_path)
 
             return JSONResponse({
                 "success": True,

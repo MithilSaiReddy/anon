@@ -1,8 +1,10 @@
 fastapi
 uvicorn
+gliner
 spacy
 python-docx
 openpyxl
 pdfplumber
-reportlab
+PyMuPDF
+python-pptx
 python-multipart
