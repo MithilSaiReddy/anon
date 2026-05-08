@@ -5,7 +5,6 @@ import webbrowser
 import os
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
-src_dir = os.path.dirname(script_dir)
 
 def check_gliner_model(python_path):
     result = subprocess.run(
@@ -63,7 +62,7 @@ def main():
     print("Starting Anon server on http://localhost:8000...")
     server_process = subprocess.Popen(
         [venv_python, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", "8000"],
-        cwd=src_dir
+        cwd=script_dir
     )
 
     print("Waiting for server to start...")
