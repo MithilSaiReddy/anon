@@ -1,0 +1,7 @@
+venv/
+models/
+temp/
+__pycache__/
+*.pyc
+*.bridgekey.json
+fashion_cnn_model.keras

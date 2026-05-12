@@ -43,7 +43,7 @@ class Anonymizer:
         if self.nlp is None:
             print("Loading GLiNER NER model (gliner_medium-v2.1)...")
             from gliner import GLiNER
-            self.nlp = GLiNER.from_pretrained("urchade/gliner_medium-v2.1")
+            self.nlp = GLiNER.from_pretrained("urchade/gliner_medium-v2.1", cache_dir=MODEL_DIR)
             print("GLiNER NER model ready!")
 
     def load_spacy(self):
