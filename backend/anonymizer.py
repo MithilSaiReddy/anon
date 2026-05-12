@@ -5,6 +5,9 @@ from datetime import datetime
 
 MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
 
+SKIP_WORDS = {}
+
+'''
 SKIP_WORDS = {
     "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
     "January", "February", "March", "April", "May", "June", "July", "August",
@@ -29,7 +32,7 @@ SKIP_WORDS = {
     "Ltd", "Inc", "Corp", "LLC", "Pvt", "Private", "Limited", "Corporation",
     "Solutions", "Services", "Technologies", "Systems", "Technologies",
 }
-
+'''
 
 class Anonymizer:
     def __init__(self):
