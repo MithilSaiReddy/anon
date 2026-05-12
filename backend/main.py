@@ -35,8 +35,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-BASE_DIR = Path(__file__).parent.parent
-TEMP_DIR = Path(__file__).parent.parent.parent / "temp"
+BASE_DIR = Path(os.path.abspath(__file__)).parent.parent
+TEMP_DIR = BASE_DIR / "temp"
 TEMP_DIR.mkdir(exist_ok=True)
 
 anonymizer: Optional[Anonymizer] = None

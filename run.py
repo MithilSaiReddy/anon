@@ -222,15 +222,8 @@ def main():
 
     if not spacy_is_available(venv_python):
         print("Downloading spaCy model (~500 MB) — this takes a few minutes …")
-        # Use pip directly to install the model as a package.
-        # This avoids `spacy download` which requires pip/uv to be on PATH
-        # (it fails inside venvs that don't have pip on PATH).
-        spacy_model_url = (
-            "https://github.com/explosion/spacy-models/releases/download/"
-            "en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"
-        )
         subprocess.run(
-            [venv_python, "-m", "pip", "install", spacy_model_url],
+            [venv_python, "-m", "spacy", "download", "en_core_web_lg"],
             check=True, timeout=600
         )
     else:
