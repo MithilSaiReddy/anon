@@ -327,6 +327,31 @@
         .hidden {
             display: none !important;
         }
+        .feedback-float {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 999;
+        }
+        .feedback-float a {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 18px;
+            background: #000;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 50px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+            transition: all 0.2s;
+        }
+        .feedback-float a:hover {
+            background: #333;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+        }
     </style>
 </head>
 <body>
@@ -408,8 +433,7 @@
                         <div class="success-message" id="successMessage"></div>
                         
                         <div class="btn-group">
-                            <button class="btn btn-secondary" onclick="downloadFile('anon')">Download Anon File</button>
-                            <button class="btn btn-secondary" onclick="downloadFile('key')">Download Key File</button>
+                            <button class="btn btn-secondary" onclick="downloadAll()">Download (Anon + Key file)</button>
                         </div>
                     </div>
                 </div>
@@ -703,6 +727,26 @@
             document.body.removeChild(link);
         }
 
+        async function downloadAll() {
+            const files = [
+                { name: currentAnonFilename },
+                { name: currentKeyFilename }
+            ];
+            for (const f of files) {
+                if (!f.name) continue;
+                const resp = await fetch(`/api/download/${encodeURIComponent(f.name)}`);
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = f.name;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+        }
+
         async function restoreFile() {
             const rawText = document.getElementById('rawText').value;
             
@@ -786,5 +830,11 @@
             }
         });
     </script>
+    <div class="feedback-float">
+        <a href="https://kta-feedback.vercel.app/af97f72d-0c63-40a3-8d08-10d3227258e6/feedback" target="_blank" rel="noopener">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            Feedback
+        </a>
+    </div>
 </body>
 </html>

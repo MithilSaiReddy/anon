@@ -269,6 +269,38 @@ async def anonymize_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/download-all/{anon_filename}")
+async def download_all(anon_filename: str):
+    if not anon_filename.startswith("anon_"):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    original = anon_filename[5:]
+    key_filename = f"{os.path.splitext(original)[0]}.bridgekey.json"
+
+    anon_path = TEMP_DIR / anon_filename
+    key_path = TEMP_DIR / key_filename
+
+    if not anon_path.exists():
+        raise HTTPException(status_code=404, detail="Anonymized file not found")
+    if not key_path.exists():
+        raise HTTPException(status_code=404, detail="Key file not found")
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.write(anon_path, arcname=original)
+        zf.write(key_path, arcname=key_filename)
+
+    zip_buffer.seek(0)
+    zip_name = f"{os.path.splitext(original)[0]}_anonymized.zip"
+
+    return FileResponse(
+        zip_buffer,
+        media_type="application/zip",
+        filename=zip_name,
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'}
+    )
+
+
 @app.get("/api/download/{filename}")
 async def download_file(filename: str):
     file_path = TEMP_DIR / filename
