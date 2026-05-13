@@ -30,7 +30,9 @@ def find_venv_python():
 
 def find_system_python():
     """Return the first usable system Python interpreter."""
-    candidates = ["python3", "python"] if not IS_WINDOWS else ["python", "python3"]
+    candidates = (["python3", "python"]
+                  if not IS_WINDOWS else
+                  ["python", "python3", "py"])
     for name in candidates:
         exe = shutil.which(name)
         if exe:
@@ -143,12 +145,15 @@ def gliner_is_available(venv_python):
         return False
 
 
-def spacy_is_available(venv_python):
-    """Return True when the spaCy en_core_web_lg model is installed."""
+SPACY_LG_URL = "https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl"
+SPACY_SM_URL = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+
+def spacy_is_available(venv_python, model="en_core_web_lg"):
+    """Return True when a spaCy model is installed."""
     try:
         r = subprocess.run(
             [venv_python, "-c",
-             "import spacy; spacy.load('en_core_web_lg')"],
+             f"import spacy; spacy.load('{model}')"],
             capture_output=True, timeout=120
         )
         return r.returncode == 0
@@ -221,11 +226,23 @@ def main():
         print("GLiNER model : ready")
 
     if not spacy_is_available(venv_python):
-        print("Downloading spaCy model (~500 MB) — this takes a few minutes …")
-        subprocess.run(
-            [venv_python, "-m", "spacy", "download", "en_core_web_lg"],
-            check=True, timeout=600
-        )
+        print("Downloading spaCy model (en_core_web_lg ~500 MB) …")
+        try:
+            subprocess.run(
+                [venv_python, "-m", "pip", "install", "--default-timeout=600", SPACY_LG_URL],
+                check=True, timeout=900
+            )
+            print("spaCy model  : ready (en_core_web_lg)")
+        except Exception:
+            print("en_core_web_lg download failed, trying smaller model (en_core_web_sm ~12 MB) …")
+            try:
+                subprocess.run(
+                    [venv_python, "-m", "pip", "install", "--default-timeout=300", SPACY_SM_URL],
+                    check=True, timeout=600
+                )
+                print("spaCy model  : ready (en_core_web_sm)")
+            except Exception:
+                print("WARNING: Could not download any spaCy model. Server will run with GLiNER only.")
     else:
         print("spaCy model  : ready")
 

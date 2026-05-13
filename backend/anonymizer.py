@@ -48,10 +48,17 @@ class Anonymizer:
 
     def load_spacy(self):
         if self.nlp_spacy is None:
-            print("Loading spaCy NER model (en_core_web_lg) as fallback...")
             import spacy
-            self.nlp_spacy = spacy.load("en_core_web_lg")
-            print("spaCy NER model ready!")
+            for model in ["en_core_web_lg", "en_core_web_sm"]:
+                try:
+                    self.nlp_spacy = spacy.load(model)
+                    print(f"spaCy NER model ready! ({model})")
+                    return
+                except OSError:
+                    continue
+            print("WARNING: No spaCy model found (en_core_web_lg or en_core_web_sm).")
+            print("  Install with: python -m spacy download en_core_web_sm")
+            self.nlp_spacy = None
 
     def _is_skip_entity(self, text: str) -> bool:
         if len(text) < 3:
@@ -75,75 +82,76 @@ class Anonymizer:
         seen_entities = set()
 
         # Step 1: GLiNER (primary)
-        labels = ["Person", "Organization", "Location"]
-        label_map = {"Person": "PERSON", "Organization": "ORG", "Location": "LOC"}
+        if self.nlp is not None:
+            labels = ["Person", "Organization", "Location"]
+            label_map = {"Person": "PERSON", "Organization": "ORG", "Location": "LOC"}
+            gliner_entities = self.nlp.predict_entities(text, labels, threshold=0.3)
 
-        gliner_entities = self.nlp.predict_entities(text, labels, threshold=0.3)
-        for ent in gliner_entities:
-            entity_text = ent["text"].strip()
-            gliner_label = ent["label"]
+            for ent in gliner_entities:
+                entity_text = ent["text"].strip()
+                gliner_label = ent["label"]
 
-            if self._is_skip_entity(entity_text):
-                continue
-            if entity_text in seen_entities:
-                continue
-
-            internal_label = label_map.get(gliner_label)
-            if internal_label == "PERSON":
-                parts = entity_text.split()
-                if len(parts) == 1 and len(entity_text) < 4:
+                if self._is_skip_entity(entity_text):
                     continue
-                placeholder = f"PERSON_{entity_counters['PERSON']}"
-                entity_counters['PERSON'] += 1
-            elif internal_label == "ORG":
-                if len(entity_text) < 4:
+                if entity_text in seen_entities:
                     continue
-                placeholder = f"ORG_{entity_counters['ORG']}"
-                entity_counters['ORG'] += 1
-            elif internal_label == "LOC":
-                placeholder = f"LOC_{entity_counters['LOC']}"
-                entity_counters['LOC'] += 1
-            else:
-                continue
 
-            entity_map[placeholder] = entity_text
-            seen_entities.add(entity_text)
+                internal_label = label_map.get(gliner_label)
+                if internal_label == "PERSON":
+                    parts = entity_text.split()
+                    if len(parts) == 1 and len(entity_text) < 4:
+                        continue
+                    placeholder = f"PERSON_{entity_counters['PERSON']}"
+                    entity_counters['PERSON'] += 1
+                elif internal_label == "ORG":
+                    if len(entity_text) < 4:
+                        continue
+                    placeholder = f"ORG_{entity_counters['ORG']}"
+                    entity_counters['ORG'] += 1
+                elif internal_label == "LOC":
+                    placeholder = f"LOC_{entity_counters['LOC']}"
+                    entity_counters['LOC'] += 1
+                else:
+                    continue
+
+                entity_map[placeholder] = entity_text
+                seen_entities.add(entity_text)
 
         # Step 2: spaCy (fallback - catches anything GLiNER missed)
-        processed = text.replace('\n', '. ')
-        doc = self.nlp_spacy(processed)
+        if self.nlp_spacy is not None:
+            processed = text.replace('\n', '. ')
+            doc = self.nlp_spacy(processed)
+            spacy_label_map = {"PERSON": "PERSON", "ORG": "ORG", "GPE": "LOC"}
 
-        spacy_label_map = {"PERSON": "PERSON", "ORG": "ORG", "GPE": "LOC"}
+            for ent in doc.ents:
+                entity_text = ent.text.strip()
+                spacy_label = ent.label_
 
-        for ent in doc.ents:
-            entity_text = ent.text.strip()
-            spacy_label = ent.label_
-
-            if self._is_skip_entity(entity_text):
-                continue
-            if entity_text in seen_entities:
-                continue
-
-            internal_label = spacy_label_map.get(spacy_label)
-            if internal_label == "PERSON":
-                parts = entity_text.split()
-                if len(parts) == 1 and len(entity_text) < 4:
+                if self._is_skip_entity(entity_text):
                     continue
-                placeholder = f"PERSON_{entity_counters['PERSON']}"
-                entity_counters['PERSON'] += 1
-            elif internal_label == "ORG":
-                if len(entity_text) < 4:
+                if entity_text in seen_entities:
                     continue
-                placeholder = f"ORG_{entity_counters['ORG']}"
-                entity_counters['ORG'] += 1
-            elif internal_label == "LOC":
-                placeholder = f"LOC_{entity_counters['LOC']}"
-                entity_counters['LOC'] += 1
-            else:
-                continue
 
-            entity_map[placeholder] = entity_text
-            seen_entities.add(entity_text)
+                internal_label = spacy_label_map.get(spacy_label)
+                if internal_label == "PERSON":
+                    parts = entity_text.split()
+                    if len(parts) == 1 and len(entity_text) < 4:
+                        continue
+                    placeholder = f"PERSON_{entity_counters['PERSON']}"
+                    entity_counters['PERSON'] += 1
+                elif internal_label == "ORG":
+                    if len(entity_text) < 4:
+                        continue
+                    placeholder = f"ORG_{entity_counters['ORG']}"
+                    entity_counters['ORG'] += 1
+                elif internal_label == "LOC":
+                    placeholder = f"LOC_{entity_counters['LOC']}"
+                    entity_counters['LOC'] += 1
+                else:
+                    continue
+
+                entity_map[placeholder] = entity_text
+                seen_entities.add(entity_text)
 
         company_keywords = ['Private', 'Limited', 'Ltd', 'Inc', 'LLC', 'Corp', 'Corporation', 'Company', 'Solutions', 'Services', 'Technologies', 'Tech', 'Systems', 'Group', 'Holdings', 'Enterprises', 'Industries', 'Consulting', 'Partners', 'Associates', 'International', 'Global', 'India', 'Pvt', 'Vryno']
 
