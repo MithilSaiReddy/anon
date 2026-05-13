@@ -1,7 +1,11 @@
-venv/
-models/
-temp/
 __pycache__/
 *.pyc
-*.bridgekey.json
-fashion_cnn_model.keras
+venv/
+.venv/
+.DS_Store
+temp_files/
+.bridgekey.json
+*.keras
+__pycache__/
+models/
+logs/

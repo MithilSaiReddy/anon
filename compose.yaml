@@ -1,0 +1,16 @@
+---
+services:
+  anon:
+    build: .
+    image: anon:local
+    container_name: anon
+    restart: unless-stopped
+    networks:
+    - anon
+    ports:
+    - "8000:8000"
+
+networks:
+  anon:
+    name: anon
+    driver: bridge
