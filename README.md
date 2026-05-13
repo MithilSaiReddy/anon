@@ -8,8 +8,8 @@ Detects names, organizations, and locations using AI, replaces them with placeho
 
 ## Prerequisites
 
-- **Python 3.8 or newer**
-- **pip** (usually included with Python)
+- **Python 3.8 or newer** (if running bare-metal)
+- **Docker & Docker Compose** (if running containerised)
 
 ### Linux
 ```bash
@@ -24,7 +24,29 @@ sudo pacman -S python-virtualenv             # Arch
 
 ---
 
-## Quick Start
+## Docker Quick Start
+
+The application is completely containerised. The `Dockerfile` compiles build dependencies and bakes the AI model layers directly into the image so it can run strictly offline.
+
+```bash
+# Clone and spin up the stack
+docker compose up -d --build
+```
+
+This single command:
+1. Builds the `python:3.11-slim` stack.
+2. Fetches GLiNER and spaCy models into the layer cache during build.
+3. Sets `HF_HUB_OFFLINE=1` ensuring no unexpected runtime outbound connections.
+4. Exposes the app at **http://localhost:8000**.
+
+To tear down the container:
+```bash
+docker compose down
+```
+
+---
+
+## Quick Start (Local Script)
 
 ```bash
 # Linux
@@ -85,10 +107,11 @@ Open **http://localhost:8000** in your browser.
 
 ## Project Structure
 
-```
 anon/
 ├── run.py               # Cross-platform launcher (Linux / macOS / Windows)
-├── .gitignore           # Ignores venv/, models/, temp/, __pycache__
+├── compose.yaml         # Production-ready Docker orchestrator
+├── Dockerfile           # Multi-stage-like runtime image compilation
+├── .gitignore           # Ignores venv/, models/, temp/, pycache
 ├── backend/
 │   ├── main.py          # FastAPI server — all API routes
 │   ├── anonymizer.py    # NER engine: GLiNER + spaCy + regex
@@ -99,11 +122,26 @@ anon/
 │   └── index.html       # Single-page web UI (vanilla JS, no build step)
 ├── models/              # Downloaded NER models (auto-created, gitignored)
 └── temp/                # Processed files (auto-created, gitignored)
-```
+
+--
+
+## Container Environment Variables
+
+These variables are defined inside the `Dockerfile` to govern execution limits:
+
+
+| Variable | Default Value | Objective |
+|----------|---------------|-----------|
+| `PYTHONDONTWRITEBYTECODE` | `1` | Prevents Python from writing `.pyc` files to disk. |
+| `PYTHONUNBUFFERED` | `1` | Forces stdout/stderr to be unbuffered for instant Docker logging. |
+| `HF_HUB_OFFLINE` | `1` | Blocks Hugging Face transformers from attempting telemetry/network checks. |
+| `HOST` | `0.0.0.0` | Binds server to all interfaces inside the container virtual network boundary. |
+| `PORT` | `8000` | Target port allocation. |
 
 ---
 
 ## API Reference
+
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -144,17 +182,19 @@ The bridge key is the **only way** to reverse anonymization. Keep it safe.
 
 ## NER Engine
 
+
 | Stage | Model | Role |
 |-------|-------|------|
 | Primary | [GLiNER](https://github.com/urchade/GLiNER) `gliner_medium-v2.1` | Detects Person, Organization, Location (threshold 0.3) |
 | Fallback | [spaCy](https://spacy.io/) `en_core_web_lg` | Catches anything GLiNER misses |
 | Regex | Keyword matching | Detects company names containing Ltd, Inc, Corp, etc. |
 
-Both models are downloaded once into `models/` and run entirely locally.
+Both models are downloaded once into `models/` (or baked directly inside the image layer structure when built via Docker) and run entirely locally.
 
 ---
 
 ## Supported File Types
+
 
 | Type | Library | Anonymization approach |
 |------|---------|----------------------|
@@ -185,11 +225,8 @@ sudo pacman -S python-virtualenv
 - The model is ~200 MB. On slow connections, increase the timeout in `run.py`
 - The model is cached in `models/` — delete that folder to force a fresh download
 
-### spaCy model download fails
-```bash
-# Try installing via pip directly:
-python -m pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl
-```
+### Docker Build / Context Issues
+If your container cannot find paths, verify you are running `docker compose up` from the directory containing `compose.yaml`. Do not move `Dockerfile` outside of the root application directory as the context requires access to `backend/requirements.txt`.
 
 ### Port 8000 is already in use
 ```bash
