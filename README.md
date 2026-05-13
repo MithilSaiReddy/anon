@@ -45,6 +45,41 @@ The first run downloads models and may take **5–15 minutes** depending on your
 
 ---
 
+## Docker Quick Start
+
+The application is completely containerised. The Dockerfile compiles build dependencies and bakes the AI model layers directly into the image so it can run strictly offline.
+
+```bash
+# Clone and spin up the stack
+docker compose up -d --build
+```
+
+This single command:
+- Builds the `python:3.11-slim` stack
+- Fetches GLiNER and spaCy models into the layer cache during build
+- Sets `HF_HUB_OFFLINE=1` ensuring no unexpected runtime outbound connections
+- Exposes the app at **http://localhost:8000**
+
+To tear down the container:
+
+```bash
+docker compose down
+```
+
+### Container Environment Variables
+
+These variables are defined inside the `Dockerfile` to govern execution limits:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `PYTHONDONTWRITEBYTECODE` | `1` | Prevents Python from writing `.pyc` files to disk |
+| `PYTHONUNBUFFERED` | `1` | Forces stdout/stderr to be unbuffered for instant Docker logging |
+| `HF_HUB_OFFLINE` | `1` | Blocks Hugging Face transformers from attempting telemetry/network checks |
+| `HOST` | `0.0.0.0` | Binds server to all interfaces inside the container virtual network boundary |
+| `PORT` | `8000` | Target port allocation |
+
+---
+
 ## Manual Setup
 
 If the one-command launcher doesn't work for your system:
