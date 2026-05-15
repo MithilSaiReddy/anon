@@ -5,7 +5,7 @@ from datetime import datetime
 
 MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
 
-SKIP_WORDS = {}
+SKIP_WORDS = {"Aadhaar", "Aadhar", "GSTIN"}
 
 '''
 SKIP_WORDS = {
@@ -73,15 +73,34 @@ class Anonymizer:
             return True
         return False
 
-    def extract_entities(self, text: str) -> Dict[str, str]:
+    def extract_entities(self, text: str, entity_types: Dict[str, bool] = None) -> Dict[str, str]:
         self.load_gliner()
         self.load_spacy()
 
         entity_map = {}
-        entity_counters = {"PERSON": 1, "ORG": 1, "LOC": 1}
+        entity_counters = {"PERSON": 1, "ORG": 1, "LOC": 1, "ID": 1}
         seen_entities = set()
 
-        # Step 1: GLiNER (primary)
+        # Step 1: structured ID detection — runs before NER so patterns like PAN,
+        # GST, CIN, Aadhaar are claimed first (GLiNER misclassifies them otherwise).
+        id_patterns = [
+            ("PAN", r'\b[A-Z]{5}[0-9]{4}[A-Z]\b'),
+            ("GST", r'\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b'),
+            ("CIN", r'\b[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}\b'),
+            ("Aadhaar", r'\b[2-9][0-9]{3}\s?[0-9]{4}\s?[0-9]{4}\b'),
+            ("RegistrationNo", r'(?:Regn?|Registration|Reg\.?)\s*(?:No|Number|#)[\s:.-]*[A-Z0-9][A-Z0-9/\-]+'),
+        ]
+        for label, pattern in id_patterns:
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                entity_text = match.group().strip()
+                if entity_text in seen_entities:
+                    continue
+                placeholder = f"ID_{entity_counters['ID']}"
+                entity_counters['ID'] += 1
+                entity_map[placeholder] = entity_text
+                seen_entities.add(entity_text)
+
+        # Step 2: GLiNER (primary NER)
         if self.nlp is not None:
             labels = ["Person", "Organization", "Location"]
             label_map = {"Person": "PERSON", "Organization": "ORG", "Location": "LOC"}
@@ -117,7 +136,7 @@ class Anonymizer:
                 entity_map[placeholder] = entity_text
                 seen_entities.add(entity_text)
 
-        # Step 2: spaCy (fallback - catches anything GLiNER missed)
+        # Step 3: spaCy (fallback NER)
         if self.nlp_spacy is not None:
             processed = text.replace('\n', '. ')
             doc = self.nlp_spacy(processed)
@@ -153,6 +172,7 @@ class Anonymizer:
                 entity_map[placeholder] = entity_text
                 seen_entities.add(entity_text)
 
+        # Step 4: company keyword fallback
         company_keywords = ['Private', 'Limited', 'Ltd', 'Inc', 'LLC', 'Corp', 'Corporation', 'Company', 'Solutions', 'Services', 'Technologies', 'Tech', 'Systems', 'Group', 'Holdings', 'Enterprises', 'Industries', 'Consulting', 'Partners', 'Associates', 'International', 'Global', 'India', 'Pvt', 'Vryno']
 
         for line in text.split('\n'):
@@ -172,17 +192,35 @@ class Anonymizer:
                         entity_map[placeholder] = candidate
                         seen_entities.add(candidate)
 
-        filtered_map = {}
-        for placeholder, text in entity_map.items():
-            is_substring = False
-            for other_text in seen_entities:
-                if other_text != text and text in other_text:
-                    is_substring = True
-                    break
-            if not is_substring:
-                filtered_map[placeholder] = text
+        # Step 5: address segments — extract a short window after address keywords
+        # rather than capturing the entire line (which may contain other entities).
+        address_markers = r'(?:address|addr|office|works\s+at|located\s+at|residence|branch|registered\s+office|correspondence)'
+        for line in text.split('\n'):
+            line_str = line.strip()
+            if len(line_str) < 10:
+                continue
+            match = re.search(address_markers, line_str, re.IGNORECASE)
+            if not match:
+                continue
+            words = line_str[match.start():].split()
+            snippet = ' '.join(words[:10]).strip()
+            if len(snippet) < 8:
+                continue
+            if snippet in seen_entities:
+                continue
+            placeholder = f"LOC_{entity_counters['LOC']}"
+            entity_counters['LOC'] += 1
+            entity_map[placeholder] = snippet
+            seen_entities.add(snippet)
 
-        return filtered_map
+        if entity_types:
+            prefix_map = {"PERSON": "PERSON", "ORG": "ORG", "LOC": "LOC", "ID": "ID"}
+            entity_map = {
+                k: v for k, v in entity_map.items()
+                if entity_types.get(prefix_map.get(k.split("_")[0], ""), True)
+            }
+
+        return entity_map
 
     def extract_entities_from_values(self, cell_values: List[str]) -> Dict[str, str]:
         self.load_gliner()
@@ -311,7 +349,7 @@ class Anonymizer:
         return filtered_map
 
     def anonymize(self, text: str, multiplier: float, entity_types: Dict[str, bool]) -> Tuple[Dict[str, str], str, Dict[str, Any]]:
-        entity_map = self.extract_entities(text)
+        entity_map = self.extract_entities(text, entity_types)
 
         result_text = text
         sorted_entities = sorted(entity_map.items(), key=lambda x: len(x[1]), reverse=True)
@@ -323,9 +361,10 @@ class Anonymizer:
             "persons": sum(1 for k in entity_map.keys() if k.startswith("PERSON_")),
             "orgs": sum(1 for k in entity_map.keys() if k.startswith("ORG_")),
             "locs": sum(1 for k in entity_map.keys() if k.startswith("LOC_")),
+            "ids": sum(1 for k in entity_map.keys() if k.startswith("ID_")),
         }
 
-        print(f"NER detected: {stats['persons']} persons, {stats['orgs']} orgs, {stats['locs']} locations")
+        print(f"NER detected: {stats['persons']} persons, {stats['orgs']} orgs, {stats['locs']} locations, {stats['ids']} IDs")
         for p, v in sorted(entity_map.items()):
             print(f"  {p} -> {v}")
 

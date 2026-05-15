@@ -93,6 +93,7 @@ async def detect_entities(file: UploadFile = File(...)):
             "PERSON": sum(1 for k in entity_map if k.startswith("PERSON_")),
             "ORG": sum(1 for k in entity_map if k.startswith("ORG_")),
             "LOC": sum(1 for k in entity_map if k.startswith("LOC_")),
+            "ID": sum(1 for k in entity_map if k.startswith("ID_")),
         }
 
         return JSONResponse({
@@ -115,6 +116,7 @@ async def anonymize_file(
     anonymize_person: bool = Form(True),
     anonymize_org: bool = Form(True),
     anonymize_city: bool = Form(True),
+    anonymize_id: bool = Form(True),
 ):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -127,6 +129,7 @@ async def anonymize_file(
         "PERSON": anonymize_person,
         "ORG": anonymize_org,
         "LOC": anonymize_city,
+        "ID": anonymize_id,
     }
 
     try:
