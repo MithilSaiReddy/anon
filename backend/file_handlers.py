@@ -4,11 +4,67 @@ from typing import Tuple, Dict, Any, List
 
 from docx import Document
 from docx.text.paragraph import Paragraph
+from docx.table import Table
+from docx.oxml.ns import qn
 import openpyxl
 import pdfplumber
 import fitz
 from pptx import Presentation
 from pptx.util import Emu
+
+
+class _HeaderFooterContent:
+    def __init__(self, part):
+        self._part = part
+        self._element = part.element
+
+    @property
+    def paragraphs(self):
+        return [Paragraph(p, self._part) for p in self._element.findall(qn('w:p'))]
+
+    @property
+    def tables(self):
+        return [Table(t, self._part) for t in self._element.findall(qn('w:tbl'))]
+
+
+def _iter_headers(doc):
+    seen = set()
+    for section in doc.sections:
+        for ref in section._sectPr.findall(qn('w:headerReference')):
+            r_id = ref.get(qn('r:id'))
+            if r_id and r_id not in seen:
+                seen.add(r_id)
+                try:
+                    part = doc.part.related_parts[r_id]
+                    yield _HeaderFooterContent(part)
+                except (KeyError, AttributeError):
+                    pass
+
+
+def _iter_footers(doc):
+    seen = set()
+    for section in doc.sections:
+        for ref in section._sectPr.findall(qn('w:footerReference')):
+            r_id = ref.get(qn('r:id'))
+            if r_id and r_id not in seen:
+                seen.add(r_id)
+                try:
+                    part = doc.part.related_parts[r_id]
+                    yield _HeaderFooterContent(part)
+                except (KeyError, AttributeError):
+                    pass
+
+
+def _process_container(container, process_run):
+    for para in container.paragraphs:
+        for run in para.runs:
+            process_run(run)
+    for table in container.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    for run in para.runs:
+                        process_run(run)
 
 
 def extract_text_from_docx(file_bytes: bytes) -> Tuple[str, Document]:
@@ -20,6 +76,24 @@ def extract_text_from_docx(file_bytes: bytes) -> Tuple[str, Document]:
         for row in table.rows:
             for cell in row.cells:
                 full_text.append(cell.text)
+    for header in _iter_headers(doc):
+        for para in header.paragraphs:
+            if para.text:
+                full_text.append(para.text)
+        for table in header.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text:
+                        full_text.append(cell.text)
+    for footer in _iter_footers(doc):
+        for para in footer.paragraphs:
+            if para.text:
+                full_text.append(para.text)
+        for table in footer.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text:
+                        full_text.append(cell.text)
     return "\n".join(full_text), doc
 
 
@@ -103,16 +177,11 @@ def anonymize_docx(doc: Document, entity_map: Dict[str, str], multiplier: float 
 
         run.text = text
 
-    for para in doc.paragraphs:
-        for run in para.runs:
-            process_run(run)
-
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for para in cell.paragraphs:
-                    for run in para.runs:
-                        process_run(run)
+    _process_container(doc, process_run)
+    for header in _iter_headers(doc):
+        _process_container(header, process_run)
+    for footer in _iter_footers(doc):
+        _process_container(footer, process_run)
 
     return {"entities": total_replacements, "numbers": len(number_map)}, number_map
 
@@ -473,16 +542,11 @@ def restore_docx(doc: Document, key_data: Dict[str, Any]) -> Dict[str, int]:
 
         run.text = text
 
-    for para in doc.paragraphs:
-        for run in para.runs:
-            process_run(run)
-
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for para in cell.paragraphs:
-                    for run in para.runs:
-                        process_run(run)
+    _process_container(doc, process_run)
+    for header in _iter_headers(doc):
+        _process_container(header, process_run)
+    for footer in _iter_footers(doc):
+        _process_container(footer, process_run)
 
     return restore_count
 
