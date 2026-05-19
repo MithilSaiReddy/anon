@@ -14,6 +14,11 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+#this is test to use fastapi-mcp library and also pydantic
+from pydantic import BaseModel
+from fastapi_mcp import FastApiMCP
+
+
 import openpyxl
 from docx import Document
 
@@ -26,6 +31,10 @@ from backend.file_handlers import (
 )
 
 app = FastAPI()
+
+#init mcp server 
+mcp = FastApiMCP(app)
+mcp.mount()
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,6 +74,103 @@ async def root():
 async def health():
     return {"status": "ok", "gliner_loaded": anonymizer is not None and anonymizer.nlp is not None, "spacy_loaded": anonymizer is not None and anonymizer.nlp_spacy is not None}
 
+
+# ── MCP TEXT TOOLS ──────────────────────────────────────
+class TextIn(BaseModel):
+    text: str
+
+class AnonymizeTextRequest(BaseModel):
+    text: str
+    anonymize_persons: bool = True
+    anonymize_orgs: bool = True
+    anonymize_locations: bool = True
+    anonymize_ids: bool = True
+
+class RestoreTextRequest(BaseModel):
+    anonymized_text: str
+    bridge_key: dict
+
+
+@app.post("/api/detect-text",
+    summary="Preview how many sensitive entities exist in text",
+    description="Scans text locally, returns ONLY counts of persons/orgs/locations/IDs. "
+                "Never returns actual names. Call before anonymizing so user can confirm.")
+async def detect_text(req: TextIn):
+    if not req.text.strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+    entity_map = anonymizer.extract_entities(req.text)
+    counts = {
+        "persons":   sum(1 for k in entity_map if k.startswith("PERSON_")),
+        "orgs":      sum(1 for k in entity_map if k.startswith("ORG_")),
+        "locations": sum(1 for k in entity_map if k.startswith("LOC_")),
+        "ids":       sum(1 for k in entity_map if k.startswith("ID_")),
+    }
+    total = sum(counts.values())
+    return {"counts": counts, "total": total,
+            "message": f"Found {total} sensitive entities. Safe to anonymize."}
+
+
+@app.post("/api/anonymize-text",
+    summary="Anonymize sensitive text before sending to AI",
+    description="Replaces names, orgs, locations, IDs with placeholders like PERSON_1, ORG_1. "
+                "Returns anonymized_text (safe to send to LLM) and bridge_key (store this). "
+                "Never send the bridge_key to the LLM.")
+async def anonymize_text(req: AnonymizeTextRequest):
+    if not req.text.strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+    entity_types = {
+        "PERSON": req.anonymize_persons,
+        "ORG":    req.anonymize_orgs,
+        "LOC":    req.anonymize_locations,
+        "ID":     req.anonymize_ids,
+    }
+    entity_map, anonymized_text, stats = anonymizer.anonymize(req.text, 1.0, entity_types)
+    bridge_key = anonymizer.create_bridge_key("text_input", entity_map, multiplier=1.0)
+    return {
+        "anonymized_text": anonymized_text,
+        "bridge_key": bridge_key,
+        "stats": {
+            "persons":   stats.get("persons", 0),
+            "orgs":      stats.get("orgs", 0),
+            "locations": stats.get("locs", 0),
+            "ids":       stats.get("ids", 0),
+        },
+    }
+
+
+@app.post("/api/restore-text",
+    summary="Restore anonymized text back to original using bridge key",
+    description="Swaps PERSON_1, ORG_1 etc back to real values using the bridge_key "
+                "from /api/anonymize-text. Call this on the LLM response to get real names back.")
+async def restore_text(req: RestoreTextRequest):
+    if not req.anonymized_text.strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+    if not req.bridge_key:
+        raise HTTPException(status_code=400, detail="Bridge key cannot be empty")
+    restored = req.anonymized_text
+    entities = req.bridge_key.get("entities", {})
+    for placeholder, original in entities.items():
+        restored = restored.replace(placeholder, original)
+    replaced = sum(1 for p in entities if p in req.anonymized_text)
+    return {"restored_text": restored, "replacements_made": replaced}
+
+
+@app.post("/api/validate-key",
+    summary="Validate a bridge key before using it",
+    description="Checks if a bridge_key is valid and returns a count summary. "
+                "Call before restore-text if unsure whether the key is intact.")
+async def validate_key(bridge_key: dict):
+    entities = bridge_key.get("entities", {})
+    if not entities:
+        return {"valid": False, "reason": "No entities found in bridge key"}
+    counts = {
+        "persons":   sum(1 for k in entities if k.startswith("PERSON_")),
+        "orgs":      sum(1 for k in entities if k.startswith("ORG_")),
+        "locations": sum(1 for k in entities if k.startswith("LOC_")),
+        "ids":       sum(1 for k in entities if k.startswith("ID_")),
+    }
+    return {"valid": True, "total_entities": len(entities), "counts": counts,
+            "original_file": bridge_key.get("original_filename", "text_input")}
 
 @app.post("/api/detect")
 async def detect_entities(file: UploadFile = File(...)):
