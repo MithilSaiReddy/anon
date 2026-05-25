@@ -8,3 +8,4 @@ pdfplumber
 PyMuPDF
 python-pptx
 python-multipart
+fastapi-mcp
