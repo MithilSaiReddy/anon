@@ -13,9 +13,9 @@ Detects names, organizations, and locations using AI, replaces them with placeho
 
 ### Linux
 ```bash
-sudo apt install python3-venv python3-pip   # Debian / Ubuntu
-sudo dnf install python3-virtualenv          # Fedora
-sudo pacman -S python-virtualenv             # Arch
+sudo apt install python3-venv python3-pip tesseract-ocr poppler-utils  # Debian / Ubuntu
+sudo dnf install python3-virtualenv tesseract poppler-utils             # Fedora
+sudo pacman -S python-virtualenv tesseract poppler                      # Arch
 ```
 
 ### Windows
@@ -47,33 +47,49 @@ The first run downloads models and may take **5–15 minutes** depending on your
 
 ## Docker Quick Start
 
-The application is completely containerised. The Dockerfile compiles build dependencies and bakes the AI model layers directly into the image so it can run strictly offline.
+The application is completely containerised. The Dockerfile bakes dependencies and AI models directly into the image so it can run strictly offline.
 
 ```bash
-# Clone and spin up the stack
+# Build and start the container
 docker compose up -d --build
 ```
 
 This single command:
 - Builds the `python:3.11-slim` stack
-- Fetches GLiNER and spaCy models into the layer cache during build
+- Copies your **local source** into the image (no git clone needed)
+- Fetches GLiNER and spaCy models into `/app/models` during build
 - Sets `HF_HUB_OFFLINE=1` ensuring no unexpected runtime outbound connections
+- Mounts named volumes for `temp/` (processed files) and `models/` (model cache) so data persists across restarts
 - Exposes the app at **http://localhost:8000**
 
-To tear down the container:
+To tear down:
 
 ```bash
 docker compose down
 ```
 
-### Container Environment Variables
+To also remove persisted data (temp files, model cache):
 
-These variables are defined inside the `Dockerfile` to govern execution limits:
+```bash
+docker compose down -v
+```
+
+### Volumes
+
+| Volume | Mount point | Purpose |
+|--------|-------------|---------|
+| `anon_temp` | `/app/temp` | Anonymized files, bridge keys (persists across restarts) |
+| `anon_models` | `/app/models` | GLiNER + spaCy model cache (avoids re-download on rebuild) |
+
+### Environment Variables
+
+These variables are defined inside the `Dockerfile` to govern execution limits and model loading:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `PYTHONDONTWRITEBYTECODE` | `1` | Prevents Python from writing `.pyc` files to disk |
 | `PYTHONUNBUFFERED` | `1` | Forces stdout/stderr to be unbuffered for instant Docker logging |
+| `HF_HUB_CACHE` | `/app/models` | Hugging Face cache directory — ensures models downloaded at build time are found at runtime |
 | `HF_HUB_OFFLINE` | `1` | Blocks Hugging Face transformers from attempting telemetry/network checks |
 | `HOST` | `0.0.0.0` | Binds server to all interfaces inside the container virtual network boundary |
 | `PORT` | `8000` | Target port allocation |
@@ -123,17 +139,20 @@ Open **http://localhost:8000** in your browser.
 ```
 anon/
 ├── run.py               # Cross-platform launcher (Linux / macOS / Windows)
-├── .gitignore           # Ignores venv/, models/, temp/, __pycache__
+├── .gitignore           # Ignores venv/, models/, temp/, __pycache__, test/
 ├── backend/
 │   ├── main.py          # FastAPI server — all API routes
 │   ├── anonymizer.py    # NER engine: GLiNER + spaCy + regex
 │   ├── file_handlers.py # Parse, anonymize & restore for each file format
+│   ├── memory_monitor.py# Memory ceiling enforcement (600 MB limit)
+│   ├── pdf_pipeline.py  # Scanned PDF → Markdown via Tesseract CLI (page-by-page)
 │   ├── restorer.py      # Reverse placeholders using bridge key
 │   └── requirements.txt # Python dependencies
 ├── frontend/
 │   └── index.html       # Single-page web UI (vanilla JS, no build step)
 ├── models/              # Downloaded NER models (auto-created, gitignored)
-└── temp/                # Processed files (auto-created, gitignored)
+├── temp/                # Processed files (auto-created, gitignored)
+└── test/                # Unit & integration tests
 ```
 
 ---
@@ -148,7 +167,11 @@ anon/
 | `POST` | `/api/anonymize` | Anonymize a file (entity toggles + number multiplier) |
 | `POST` | `/api/restore` | Restore from anonymized file + bridge key |
 | `GET` | `/api/download/{filename}` | Download processed file |
+| `GET` | `/api/download-all/{anon_filename}` | Download anonymized file + bridge key as ZIP |
 | `POST` | `/api/cleanup` | Delete all temp files |
+| `POST` | `/api/validate-key` | Validate a bridge key before using it |
+
+> **Note**: Scanned (image-based) PDFs are automatically detected and processed page-by-page via Tesseract OCR. The output is a `.md` (Markdown) file preserving document structure (headings, page breaks). Text-based PDFs use the standard PyMuPDF pipeline and preserve the original PDF format.
 
 ---
 
@@ -195,9 +218,35 @@ Both models are downloaded once into `models/` and run entirely locally.
 |------|---------|----------------------|
 | Word (`.docx`) | `python-docx` | Run-level text replacement, preserves formatting |
 | Excel (`.xlsx`) | `openpyxl` | Cell-level string + numeric replacement |
-| PDF (`.pdf`) | `pdfplumber` + `PyMuPDF` | Text extraction via pdfplumber, redaction via PyMuPDF annotations |
+| PDF — text layer (`.pdf`) | `pdfplumber` + `PyMuPDF` | Text extraction via pdfplumber, redaction via PyMuPDF annotations |
+| PDF — scanned/image (`.pdf`) | `pdf2image` + `Tesseract CLI` | Page-by-page OCR at 150 DPI → Markdown output with structure preserved |
 | PowerPoint (`.pptx`) | `python-pptx` | Run-level text replacement in slides, text frames, and tables |
 | Raw text (paste) | N/A | Placeholder replacement in pasted text |
+
+### Scanned PDF Pipeline
+
+When a PDF contains less than 100 characters of extractable text (first 5 pages), it is classified as **scanned/image-based** and routed through a low-memory OCR pipeline:
+
+1. **Page-by-page**: PDF pages are rendered as JPEG images (150 DPI) one at a time via `pdf2image`
+2. **Tesseract CLI**: Each image is OCR'd via `subprocess.run(['tesseract', ...])` — no Python memory leaks from bindings
+3. **Disk-based accumulation**: OCR text is written incrementally to a `.md` file on disk, never held fully in memory
+4. **Garbage collection**: `gc.collect()` is forced after every page and model inference
+5. **Memory monitoring**: A daemon thread polls `psutil` every 500ms; processing aborts with **HTTP 413** if RSS exceeds **600 MB**
+6. **Output**: Anonymized Markdown file (`.md`) + standard bridge key (`.bridgekey.json`)
+
+---
+
+## Running Tests
+
+```bash
+# From the project root with the venv activated:
+python -m pytest test/ -v
+
+# Run a specific test file:
+python -m pytest test/test_memory_monitor.py -v
+```
+
+Tests use `pytest` and `unittest.mock` to avoid requiring real ML models or external tools.
 
 ---
 
@@ -235,6 +284,21 @@ lsof -ti:8000 | xargs kill
 # Windows (PowerShell as admin)
 Stop-Process -Id (Get-NetTCPConnection -LocalPort 8000).OwningProcess -Force
 ```
+
+### Tesseract not found (scanned PDF processing fails)
+```bash
+# Linux
+sudo apt install tesseract-ocr poppler-utils   # Debian / Ubuntu
+sudo dnf install tesseract poppler-utils        # Fedora
+sudo pacman -S tesseract poppler                # Arch
+
+# macOS
+brew install tesseract poppler
+
+# Windows — download from https://github.com/UB-Mannheim/tesseract/wiki
+# and add it to your PATH
+```
+The scanned PDF pipeline uses `tesseract` CLI directly (not `pytesseract`) to minimise memory overhead.
 
 ### "Python not found" on Windows
 Make sure you checked **"Add Python to PATH"** during installation. Reinstall Python from [python.org](https://python.org) if needed.

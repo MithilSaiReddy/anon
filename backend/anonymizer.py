@@ -1,7 +1,10 @@
+import logging
 import re
 import os
 from typing import Dict, Tuple, List, Any
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
 
@@ -41,11 +44,11 @@ class Anonymizer:
 
     def load_gliner(self):
         if self.nlp is None:
-            print("Loading GLiNER NER model (gliner_medium-v2.1)...")
+            logger.info("Loading GLiNER NER model (gliner_medium-v2.1)...")
             from gliner import GLiNER
             kwargs = {"local_files_only": True} if os.environ.get("HF_HUB_OFFLINE") == "1" else {"cache_dir": MODEL_DIR}
             self.nlp = GLiNER.from_pretrained("urchade/gliner_medium-v2.1", **kwargs)
-            print("GLiNER NER model ready!")
+            logger.info("GLiNER NER model ready!")
 
     def load_spacy(self):
         if self.nlp_spacy is None:
@@ -53,12 +56,11 @@ class Anonymizer:
             for model in ["en_core_web_lg", "en_core_web_sm"]:
                 try:
                     self.nlp_spacy = spacy.load(model)
-                    print(f"spaCy NER model ready! ({model})")
+                    logger.info("spaCy NER model ready! (%s)", model)
                     return
                 except OSError:
                     continue
-            print("WARNING: No spaCy model found (en_core_web_lg or en_core_web_sm).")
-            print("  Install with: python -m spacy download en_core_web_sm")
+            logger.warning("No spaCy model found (en_core_web_lg or en_core_web_sm). Install with: python -m spacy download en_core_web_sm")
             self.nlp_spacy = None
 
     def _is_skip_entity(self, text: str) -> bool:
@@ -365,9 +367,12 @@ class Anonymizer:
             "ids": sum(1 for k in entity_map.keys() if k.startswith("ID_")),
         }
 
-        print(f"NER detected: {stats['persons']} persons, {stats['orgs']} orgs, {stats['locs']} locations, {stats['ids']} IDs")
-        for p, v in sorted(entity_map.items()):
-            print(f"  {p} -> {v}")
+        logger.info("NER detected: %d persons, %d orgs, %d locations, %d IDs", stats['persons'], stats['orgs'], stats['locs'], stats['ids'])
+        
+        if entity_map and logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Entity mappings:")
+            for p, v in entity_map.items():
+                logger.debug("  %s -> %s", p, v)
 
         return entity_map, result_text, stats
 

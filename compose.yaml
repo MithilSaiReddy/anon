@@ -5,10 +5,21 @@ services:
     image: anon:local
     container_name: anon
     restart: unless-stopped
-    networks:
-    - anon
     ports:
-    - "8000:8000"
+      - "8000:8000"
+    environment:
+      - APP_ENV=prod
+    volumes:
+      - anon_temp:/app/temp
+      - anon_models:/app/models
+      - anon_logs:/app/logs
+    networks:
+      - anon
+
+volumes:
+  anon_temp:
+  anon_models:
+  anon_logs:
 
 networks:
   anon:

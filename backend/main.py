@@ -1,9 +1,11 @@
 import io
 import json
+import logging
 import os
 import re
 import sys
 import shutil
+import time
 import zipfile
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -27,8 +29,16 @@ from backend.restorer import create_restorer, Restorer
 from backend.file_handlers import (
     extract_text_from_docx, extract_text_from_xlsx, extract_text_from_pdf, extract_text_from_pptx,
     anonymize_docx, anonymize_xlsx, anonymize_pdf, anonymize_pptx,
-    restore_docx, restore_xlsx, restore_pdf, restore_pptx
+    restore_docx, restore_xlsx, restore_pdf, restore_pptx,
 )
+from backend.logger import setup_logging
+from backend.pdf_pipeline import is_scanned_pdf, process_scanned_pdf, cleanup_ocr_temp
+from backend.memory_monitor import MemoryThresholdExceeded
+
+logger = logging.getLogger(__name__)
+
+app_env = os.getenv("APP_ENV", "dev")
+setup_logging(app_env)
 
 app = FastAPI()
 
@@ -44,6 +54,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.exception_handler(MemoryThresholdExceeded)
+async def memory_threshold_handler(request, exc):
+    logger.warning("Memory threshold exceeded: %s", exc)
+    return JSONResponse(
+        status_code=413,
+        content={"success": False, "detail": str(exc)},
+    )
+
+
 BASE_DIR = Path(os.path.abspath(__file__)).parent.parent
 TEMP_DIR = BASE_DIR / "temp"
 TEMP_DIR.mkdir(exist_ok=True)
@@ -55,13 +75,12 @@ restorer: Optional[Restorer] = None
 @app.on_event("startup")
 async def startup():
     global anonymizer, restorer
+    logger.info("Starting Anon server (env=%s) ...", app_env)
     anonymizer = create_anonymizer()
     restorer = create_restorer()
-    print("Loading GLiNER NER model...")
     anonymizer.load_gliner()
-    print("Loading spaCy NER model (fallback)...")
     anonymizer.load_spacy()
-    print("Server ready!")
+    logger.info("Server ready!")
 
 
 @app.get("/")
@@ -182,12 +201,16 @@ async def detect_entities(file: UploadFile = File(...)):
     file_bytes = await file.read()
 
     try:
+        logger.info("Detect: %s (%d bytes)", original_filename, len(file_bytes))
         if file_ext == ".docx":
             text, _ = extract_text_from_docx(file_bytes)
         elif file_ext == ".xlsx":
             text, _ = extract_text_from_xlsx(file_bytes)
         elif file_ext == ".pdf":
-            text, _ = extract_text_from_pdf(file_bytes)
+            if is_scanned_pdf(file_bytes):
+                text, _ = process_scanned_pdf(file_bytes, TEMP_DIR)
+            else:
+                text, _ = extract_text_from_pdf(file_bytes)
         elif file_ext == ".pptx":
             text, _ = extract_text_from_pptx(file_bytes)
         else:
@@ -209,9 +232,11 @@ async def detect_entities(file: UploadFile = File(...)):
             "preview": {k: v for k, v in list(entity_map.items())[:10]}
         })
 
+    except MemoryThresholdExceeded:
+        logger.warning("Memory threshold exceeded during detect")
+        raise HTTPException(status_code=413, detail="File Too Large — processing exceeded memory limit")
     except Exception as e:
-        import traceback
-        print(traceback.format_exc())
+        logger.exception("Detect failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -239,10 +264,8 @@ async def anonymize_file(
     }
 
     try:
-        print(f"\n{'='*60}")
-        print(f"Processing: {original_filename}")
-        print(f"Multiplier: {multiplier}")
-        print(f"{'='*60}")
+        start_time = time.time()
+        logger.info("Processing: %s (ext=%s, mult=%.2f)", original_filename, file_ext, multiplier)
 
         if file_ext == ".docx":
             text, doc = extract_text_from_docx(file_bytes)
@@ -266,7 +289,8 @@ async def anonymize_file(
                 json.dump(key_data, f, indent=2)
 
             total_entities = stats["persons"] + stats["orgs"] + stats.get("locs", 0)
-            message = f"Anonymized {total_entities} entities, modified {counts['numbers']} numbers (x{multiplier})"
+            elapsed = time.time() - start_time
+            logger.info("Done: %s — %d entities, %d numbers (%.2fs)", original_filename, total_entities, counts['numbers'], elapsed)
 
             return JSONResponse({
                 "success": True,
@@ -279,9 +303,7 @@ async def anonymize_file(
 
         elif file_ext == ".xlsx":
             text, wb = extract_text_from_xlsx(file_bytes)
-            print(f"\nExtracted text ({len(text)} chars):")
-            print(text[:500])
-            print()
+            logger.debug("Extracted %d chars from XLSX", len(text))
 
             entity_map, _, stats = anonymizer.anonymize(text, multiplier, entity_types)
 
@@ -299,7 +321,8 @@ async def anonymize_file(
                 json.dump(key_data, f, indent=2)
 
             total_entities = stats["persons"] + stats["orgs"] + stats.get("locs", 0)
-            message = f"Anonymized {total_entities} entities, modified {counts['numbers']} numbers (x{multiplier})"
+            elapsed = time.time() - start_time
+            logger.info("Done: %s — %d entities, %d numbers (%.2fs)", original_filename, total_entities, counts['numbers'], elapsed)
 
             return JSONResponse({
                 "success": True,
@@ -311,34 +334,69 @@ async def anonymize_file(
             })
 
         elif file_ext == ".pdf":
-            text, pages = extract_text_from_pdf(file_bytes)
-            entity_map, _, stats = anonymizer.anonymize(text, multiplier, entity_types)
+            if is_scanned_pdf(file_bytes):
+                markdown_text, md_path = process_scanned_pdf(file_bytes, TEMP_DIR)
+                entity_map, anon_text, stats = anonymizer.anonymize(markdown_text, multiplier, entity_types)
 
-            counts, pdf_bytes, number_map = anonymize_pdf(file_bytes, entity_map, multiplier)
+                anon_filename = f"anon_{os.path.splitext(original_filename)[0]}.md"
+                anon_path = TEMP_DIR / anon_filename
+                with open(anon_path, "w") as f:
+                    f.write(anon_text)
 
-            anon_filename = f"anon_{original_filename}"
-            anon_path = TEMP_DIR / anon_filename
-            with open(anon_path, "wb") as f:
-                f.write(pdf_bytes)
+                if os.path.exists(md_path):
+                    try:
+                        os.unlink(md_path)
+                    except Exception:
+                        pass
 
-            key_filename = f"{os.path.splitext(original_filename)[0]}.bridgekey.json"
-            key_data = anonymizer.create_bridge_key(original_filename, entity_map, multiplier)
-            key_data["number_mappings"] = number_map
-            key_path = TEMP_DIR / key_filename
-            with open(key_path, "w") as f:
-                json.dump(key_data, f, indent=2)
+                key_filename = f"{os.path.splitext(original_filename)[0]}.bridgekey.json"
+                key_data = anonymizer.create_bridge_key(original_filename, entity_map, multiplier)
+                key_path = TEMP_DIR / key_filename
+                with open(key_path, "w") as f:
+                    json.dump(key_data, f, indent=2)
 
-            total_entities = stats["persons"] + stats["orgs"] + stats.get("locs", 0)
-            message = f"Anonymized {total_entities} entities, modified {counts['numbers']} numbers (x{multiplier})"
+                total_entities = stats["persons"] + stats["orgs"] + stats.get("locs", 0)
+                elapsed = time.time() - start_time
+                logger.info("Done: %s (scanned PDF → Markdown) — %d entities (%.2fs)", original_filename, total_entities, elapsed)
 
-            return JSONResponse({
-                "success": True,
-                "message": message,
-                "anon_filename": anon_filename,
-                "key_filename": key_filename,
-                "entity_mapping": entity_map,
-                "stats": stats,
-            })
+                return JSONResponse({
+                    "success": True,
+                    "message": message,
+                    "anon_filename": anon_filename,
+                    "key_filename": key_filename,
+                    "entity_mapping": entity_map,
+                    "stats": stats,
+                })
+            else:
+                text, pages = extract_text_from_pdf(file_bytes)
+                entity_map, _, stats = anonymizer.anonymize(text, multiplier, entity_types)
+
+                counts, pdf_bytes, number_map = anonymize_pdf(file_bytes, entity_map, multiplier)
+
+                anon_filename = f"anon_{original_filename}"
+                anon_path = TEMP_DIR / anon_filename
+                with open(anon_path, "wb") as f:
+                    f.write(pdf_bytes)
+
+                key_filename = f"{os.path.splitext(original_filename)[0]}.bridgekey.json"
+                key_data = anonymizer.create_bridge_key(original_filename, entity_map, multiplier)
+                key_data["number_mappings"] = number_map
+                key_path = TEMP_DIR / key_filename
+                with open(key_path, "w") as f:
+                    json.dump(key_data, f, indent=2)
+
+                total_entities = stats["persons"] + stats["orgs"] + stats.get("locs", 0)
+                elapsed = time.time() - start_time
+                logger.info("Done: %s (text PDF) — %d entities, %d numbers (%.2fs)", original_filename, total_entities, counts['numbers'], elapsed)
+
+                return JSONResponse({
+                    "success": True,
+                    "message": message,
+                    "anon_filename": anon_filename,
+                    "key_filename": key_filename,
+                    "entity_mapping": entity_map,
+                    "stats": stats,
+                })
 
         elif file_ext == ".pptx":
             text, prs = extract_text_from_pptx(file_bytes)
@@ -358,7 +416,8 @@ async def anonymize_file(
                 json.dump(key_data, f, indent=2)
 
             total_entities = stats["persons"] + stats["orgs"] + stats.get("locs", 0)
-            message = f"Anonymized {total_entities} entities, modified {counts['numbers']} numbers (x{multiplier})"
+            elapsed = time.time() - start_time
+            logger.info("Done: %s — %d entities, %d numbers (%.2fs)", original_filename, total_entities, counts['numbers'], elapsed)
 
             return JSONResponse({
                 "success": True,
@@ -370,11 +429,14 @@ async def anonymize_file(
             })
 
         else:
+            logger.warning("Unsupported file type: %s", file_ext)
             raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ext}")
 
+    except MemoryThresholdExceeded:
+        logger.warning("Memory threshold exceeded during anonymize: %s", original_filename)
+        raise HTTPException(status_code=413, detail="File Too Large — processing exceeded memory limit")
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Anonymize failed: %s (%s)", original_filename, e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -439,6 +501,7 @@ async def restore_file(
         raise HTTPException(status_code=400, detail="Invalid key file format")
 
     try:
+        logger.info("Restore: %s", "raw_text" if raw_text else file.filename if file else "unknown")
         if raw_text:
             restored_text = raw_text
             entity_map = key_data.get("entities", {})
@@ -528,23 +591,57 @@ async def restore_file(
                 "restored_filename": restored_filename,
             })
 
+        elif file_ext in (".md", ".txt"):
+            restored_text = file_bytes.decode("utf-8")
+            entity_map = key_data.get("entities", {})
+            number_map = key_data.get("number_mappings", {})
+
+            for placeholder, original in entity_map.items():
+                if placeholder in restored_text:
+                    restored_text = restored_text.replace(placeholder, original)
+
+            for orig_str, new_val in number_map.items():
+                if str(new_val) in restored_text:
+                    restored_text = restored_text.replace(str(new_val), orig_str)
+
+            restored_filename = f"restored_{original_filename}"
+            restored_path = TEMP_DIR / restored_filename
+            with open(restored_path, "w") as f:
+                f.write(restored_text)
+
+            entities_replaced = sum(
+                1 for p in entity_map if p in file_bytes.decode("utf-8")
+            )
+
+            return JSONResponse({
+                "success": True,
+                "message": f"Restored {entities_replaced} entities, {len(number_map)} numbers",
+                "restored_filename": restored_filename,
+            })
+
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ext}")
 
+    except MemoryThresholdExceeded:
+        logger.warning("Memory threshold exceeded during restore")
+        raise HTTPException(status_code=413, detail="File Too Large — processing exceeded memory limit")
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        logger.exception("Restore failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/cleanup")
 async def cleanup_temp():
+    count = 0
     for file_path in TEMP_DIR.iterdir():
         if file_path.is_file():
             try:
                 file_path.unlink()
+                count += 1
             except Exception:
                 pass
+    cleanup_ocr_temp()
+    logger.info("Cleanup: removed %d temp files", count)
     return {"success": True}
 
 

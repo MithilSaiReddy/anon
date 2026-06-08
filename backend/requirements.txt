@@ -9,3 +9,5 @@ PyMuPDF
 python-pptx
 python-multipart
 fastapi-mcp
+psutil
+pdf2image
