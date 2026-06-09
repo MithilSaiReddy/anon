@@ -547,59 +547,63 @@
 
         let selectedFile = null;
 
-        function handleFileSelect(input) {
+        function handleFileSelect(inputOrFile) {
             const dropZone = document.getElementById('dropZone');
+            const file = inputOrFile instanceof File ? inputOrFile : (inputOrFile.files && inputOrFile.files[0]);
             
-            if (input.files && input.files[0]) {
-                selectedFile = input.files[0];
+            if (file) {
+                selectedFile = file;
                 dropZone.classList.add('has-file');
                 dropZone.innerHTML = `
                     <input type="file" id="anonymizeFile" accept=".xlsx,.docx,.pdf,.pptx" onchange="handleFileSelect(this)">
                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                    <p class="filename">${selectedFile.name}</p>
+                    <p class="filename">${file.name}</p>
                 `;
-                detectEntities(selectedFile);
+                detectEntities(file);
             }
         }
 
-        function handleRestoreFileSelect(input) {
+        function handleRestoreFileSelect(inputOrFile) {
             const dropZone = document.getElementById('restoreDropZone');
+            const file = inputOrFile instanceof File ? inputOrFile : (inputOrFile.files && inputOrFile.files[0]);
             
-            if (input.files && input.files[0]) {
-                selectedRestoreFile = input.files[0];
+            if (file) {
+                selectedRestoreFile = file;
                 dropZone.classList.add('has-file');
                 dropZone.innerHTML = `
                     <input type="file" id="restoreFile" accept=".xlsx,.docx,.pdf,.pptx,.txt" onchange="handleRestoreFileSelect(this)">
                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
-                    <p class="filename">${selectedRestoreFile.name}</p>
+                    <p class="filename">${file.name}</p>
                 `;
             }
         }
 
-        function handleKeyFileSelect(input) {
+        function handleKeyFileSelect(inputOrFile) {
             const dropZone = document.getElementById('keyDropZone');
+            const file = inputOrFile instanceof File ? inputOrFile : (inputOrFile.files && inputOrFile.files[0]);
             
-            if (input.files && input.files[0]) {
-                selectedKeyFile = input.files[0];
+            if (file) {
+                selectedKeyFile = file;
                 dropZone.classList.add('has-file');
                 dropZone.innerHTML = `
                     <input type="file" id="keyFile" accept=".json" onchange="handleKeyFileSelect(this)">
                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
-                    <p class="filename">${selectedKeyFile.name}</p>
+                    <p class="filename">${file.name}</p>
                 `;
             }
         }
 
-        function handleRawTextKeyFileSelect(input) {
+        function handleRawTextKeyFileSelect(inputOrFile) {
             const dropZone = document.getElementById('rawTextKeyDropZone');
+            const file = inputOrFile instanceof File ? inputOrFile : (inputOrFile.files && inputOrFile.files[0]);
             
-            if (input.files && input.files[0]) {
-                selectedRawTextKeyFile = input.files[0];
+            if (file) {
+                selectedRawTextKeyFile = file;
                 dropZone.classList.add('has-file');
                 dropZone.innerHTML = `
                     <input type="file" id="rawTextKeyFile" accept=".json" onchange="handleRawTextKeyFileSelect(this)">
                     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.5"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg>
-                    <p class="filename">${selectedRawTextKeyFile.name}</p>
+                    <p class="filename">${file.name}</p>
                 `;
             }
         }
@@ -820,27 +824,32 @@
             }
         }
 
-        document.getElementById('dropZone').addEventListener('dragover', function(e) {
-            e.preventDefault();
-            this.style.borderColor = '#000';
-            this.style.background = '#f5f5f5';
-        });
+        function setupDropZone(dropZoneId, handlerFn) {
+            const zone = document.getElementById(dropZoneId);
+            zone.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                this.style.borderColor = '#000';
+                this.style.background = '#f5f5f5';
+            });
+            zone.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                this.style.borderColor = '#ccc';
+                this.style.background = 'transparent';
+            });
+            zone.addEventListener('drop', function(e) {
+                e.preventDefault();
+                this.style.borderColor = '#ccc';
+                this.style.background = 'transparent';
+                if (e.dataTransfer.files.length) {
+                    handlerFn(e.dataTransfer.files[0]);
+                }
+            });
+        }
 
-        document.getElementById('dropZone').addEventListener('dragleave', function(e) {
-            this.style.borderColor = '#ccc';
-            this.style.background = 'transparent';
-        });
-
-        document.getElementById('dropZone').addEventListener('drop', function(e) {
-            e.preventDefault();
-            this.style.borderColor = '#ccc';
-            this.style.background = 'transparent';
-            const input = document.getElementById('anonymizeFile');
-            if (e.dataTransfer.files.length) {
-                input.files = e.dataTransfer.files;
-                handleFileSelect(input);
-            }
-        });
+        setupDropZone('dropZone', handleFileSelect);
+        setupDropZone('restoreDropZone', handleRestoreFileSelect);
+        setupDropZone('keyDropZone', handleKeyFileSelect);
+        setupDropZone('rawTextKeyDropZone', handleRawTextKeyFileSelect);
     </script>
     <div class="feedback-float">
         <a href="https://tally.so/r/RGb4WP" target="_blank" rel="noopener">
