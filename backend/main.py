@@ -292,6 +292,7 @@ async def anonymize_file(
             elapsed = time.time() - start_time
             logger.info("Done: %s — %d entities, %d numbers (%.2fs)", original_filename, total_entities, counts['numbers'], elapsed)
 
+            message = f"Anonymized {total_entities} entities, {counts['numbers']} numbers"
             return JSONResponse({
                 "success": True,
                 "message": message,
@@ -324,6 +325,7 @@ async def anonymize_file(
             elapsed = time.time() - start_time
             logger.info("Done: %s — %d entities, %d numbers (%.2fs)", original_filename, total_entities, counts['numbers'], elapsed)
 
+            message = f"Anonymized {total_entities} entities, {counts['numbers']} numbers"
             return JSONResponse({
                 "success": True,
                 "message": message,
@@ -359,6 +361,7 @@ async def anonymize_file(
                 elapsed = time.time() - start_time
                 logger.info("Done: %s (scanned PDF → Markdown) — %d entities (%.2fs)", original_filename, total_entities, elapsed)
 
+                message = f"Anonymized {total_entities} entities"
                 return JSONResponse({
                     "success": True,
                     "message": message,
@@ -389,6 +392,7 @@ async def anonymize_file(
                 elapsed = time.time() - start_time
                 logger.info("Done: %s (text PDF) — %d entities, %d numbers (%.2fs)", original_filename, total_entities, counts['numbers'], elapsed)
 
+                message = f"Anonymized {total_entities} entities, {counts['numbers']} numbers"
                 return JSONResponse({
                     "success": True,
                     "message": message,
@@ -419,6 +423,7 @@ async def anonymize_file(
             elapsed = time.time() - start_time
             logger.info("Done: %s — %d entities, %d numbers (%.2fs)", original_filename, total_entities, counts['numbers'], elapsed)
 
+            message = f"Anonymized {total_entities} entities, {counts['numbers']} numbers"
             return JSONResponse({
                 "success": True,
                 "message": message,
