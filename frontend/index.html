@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-store">
     <title>Anon</title>
     <link rel="stylesheet" href="https://unpkg.com/oat.ink/dist/oat.min.css">
     <script src="https://unpkg.com/oat.ink/dist/oat.min.js" defer></script>
@@ -707,7 +708,7 @@
                     currentKeyFilename = data.key_filename;
                     currentEntityMapping = data.entity_mapping;
                     
-                    document.getElementById('successMessage').textContent = data.message;
+                    document.getElementById('successMessage').textContent = data.message || 'File anonymized successfully!';
                     document.getElementById('anonymizeResult').classList.remove('hidden');
                     alert('File anonymized successfully!');
                 } else {
@@ -805,7 +806,7 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    document.getElementById('restoreSuccessMessage').textContent = data.message;
+                    document.getElementById('restoreSuccessMessage').textContent = data.message || 'Data restored successfully!';
                     document.getElementById('restoreResult').classList.remove('hidden');
                     
                     if (data.restored_filename) {

@@ -86,7 +86,7 @@ async def startup():
 @app.get("/")
 async def root():
     index_path = BASE_DIR / "frontend" / "index.html"
-    return FileResponse(index_path)
+    return FileResponse(index_path, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/health")
