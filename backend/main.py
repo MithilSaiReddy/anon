@@ -229,6 +229,7 @@ async def detect_entities(file: UploadFile = File(...)):
             "success": True,
             "entities": counts,
             "filename": original_filename,
+            "entity_map": entity_map,
             "preview": {k: v for k, v in list(entity_map.items())[:10]}
         })
 
@@ -248,9 +249,17 @@ async def anonymize_file(
     anonymize_org: bool = Form(True),
     anonymize_city: bool = Form(True),
     anonymize_id: bool = Form(True),
+    skip_entities: Optional[str] = Form(None),
 ):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
+
+    skip_set = set()
+    if skip_entities:
+        try:
+            skip_set = set(json.loads(skip_entities))
+        except (json.JSONDecodeError, TypeError):
+            skip_set = {s_ for s_ in skip_entities.split(",") if s_.strip()}
 
     original_filename = file.filename
     file_ext = os.path.splitext(original_filename)[1].lower()
@@ -269,7 +278,7 @@ async def anonymize_file(
 
         if file_ext == ".docx":
             text, doc = extract_text_from_docx(file_bytes)
-            entity_map, _, stats = anonymizer.anonymize(text, multiplier, entity_types)
+            entity_map, _, stats = anonymizer.anonymize(text, multiplier, entity_types, skip_entities=skip_set)
 
             counts, number_map = anonymize_docx(doc, entity_map, multiplier)
 
@@ -306,7 +315,7 @@ async def anonymize_file(
             text, wb = extract_text_from_xlsx(file_bytes)
             logger.debug("Extracted %d chars from XLSX", len(text))
 
-            entity_map, _, stats = anonymizer.anonymize(text, multiplier, entity_types)
+            entity_map, _, stats = anonymizer.anonymize(text, multiplier, entity_types, skip_entities=skip_set)
 
             counts, number_map = anonymize_xlsx(wb, entity_map, multiplier)
 
@@ -338,7 +347,7 @@ async def anonymize_file(
         elif file_ext == ".pdf":
             if is_scanned_pdf(file_bytes):
                 markdown_text, md_path = process_scanned_pdf(file_bytes, TEMP_DIR)
-                entity_map, anon_text, stats = anonymizer.anonymize(markdown_text, multiplier, entity_types)
+                entity_map, anon_text, stats = anonymizer.anonymize(markdown_text, multiplier, entity_types, skip_entities=skip_set)
 
                 anon_filename = f"anon_{os.path.splitext(original_filename)[0]}.md"
                 anon_path = TEMP_DIR / anon_filename
@@ -372,7 +381,7 @@ async def anonymize_file(
                 })
             else:
                 text, pages = extract_text_from_pdf(file_bytes)
-                entity_map, _, stats = anonymizer.anonymize(text, multiplier, entity_types)
+                entity_map, _, stats = anonymizer.anonymize(text, multiplier, entity_types, skip_entities=skip_set)
 
                 counts, pdf_bytes, number_map = anonymize_pdf(file_bytes, entity_map, multiplier)
 
@@ -404,7 +413,7 @@ async def anonymize_file(
 
         elif file_ext == ".pptx":
             text, prs = extract_text_from_pptx(file_bytes)
-            entity_map, _, stats = anonymizer.anonymize(text, multiplier, entity_types)
+            entity_map, _, stats = anonymizer.anonymize(text, multiplier, entity_types, skip_entities=skip_set)
 
             counts, number_map = anonymize_pptx(prs, entity_map, multiplier)
 

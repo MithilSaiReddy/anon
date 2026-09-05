@@ -99,6 +99,43 @@ class TestDetectFile:
         )
         assert response.status_code in (400, 500)
 
+    def test_detect_returns_full_entity_map(self):
+        anon.extract_entities = MagicMock(
+            return_value={"PERSON_1": "John Doe", "ORG_1": "Acme Corp"}
+        )
+        with patch("backend.main.extract_text_from_docx", return_value=("text", None)):
+            response = client.post(
+                "/api/detect",
+                files={"file": ("a.docx", b"data", "application/octet-stream")},
+            )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["entity_map"] == {"PERSON_1": "John Doe", "ORG_1": "Acme Corp"}
+
+
+class TestAnonymizeFileSkipEntities:
+    def test_skip_entities_passed_to_anonymizer(self):
+        captured = {}
+
+        def fake_anonymize(text, multiplier, entity_types, skip_entities=None):
+            captured["skip"] = skip_entities
+            return (
+                {"PERSON_1": "John Doe"},
+                "anon text",
+                {"persons": 1, "orgs": 0, "locs": 0, "ids": 0},
+            )
+
+        anon.anonymize = MagicMock(side_effect=fake_anonymize)
+        with patch("backend.main.extract_text_from_docx", return_value=("text", MagicMock())):
+            with patch("backend.main.anonymize_docx", return_value=({"entities": 1, "numbers": 0}, {})):
+                response = client.post(
+                    "/api/anonymize",
+                    data={"skip_entities": '["John Doe", "Gross"]'},
+                    files={"file": ("a.docx", b"data", "application/octet-stream")},
+                )
+        assert response.status_code == 200
+        assert captured.get("skip") == {"Gross", "John Doe"}
+
 
 class TestCleanup:
     def test_cleanup_success(self):

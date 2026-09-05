@@ -252,6 +252,57 @@
             border-radius: 10px;
             font-size: 0.8rem;
         }
+        .review-block {
+            margin-top: 16px;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 16px;
+            background: #fff;
+        }
+        .review-header h4 {
+            margin: 0 0 4px 0;
+            color: #666;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+        .review-header .form-hint {
+            margin: 0 0 12px 0;
+        }
+        .review-group {
+            margin-bottom: 12px;
+        }
+        .review-group-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            margin: 0 0 6px 0;
+        }
+        .review-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin: 0 8px 6px 0;
+            padding: 4px 8px;
+            background: #f5f5f5;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            border: 1px solid #e6e6e6;
+        }
+        .review-item input {
+            margin: 0;
+            accent-color: #000;
+        }
+        .review-placeholder {
+            color: #999;
+            font-size: 0.75rem;
+            font-family: monospace;
+        }
+        .review-none {
+            color: #999;
+            font-size: 0.85rem;
+            font-style: italic;
+        }
         .success-message {
             background: #4caf50;
             color: white;
@@ -405,6 +456,13 @@
                         <h4>Detected Entities</h4>
                         <div class="entity-tags" id="detectedEntities"></div>
                     </div>
+                    <div class="review-block" id="reviewBlock">
+                        <div class="review-header">
+                            <h4>Review Entities Before Anonymizing</h4>
+                            <p class="form-hint">Uncheck any entity you want to KEEP in the document (e.g. words wrongly flagged). Everything checked here will be replaced by placeholders.</p>
+                        </div>
+                        <div id="entityReviewList"></div>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -531,6 +589,7 @@
         let currentRestoredFilename = '';
         let currentEntityMapping = {};
         let detectedEntities = {};
+        let detectedEntityMap = {};
         let selectedRestoreFile = null;
         let selectedKeyFile = null;
         let selectedRawTextKeyFile = null;
@@ -623,7 +682,9 @@
                     const data = await response.json();
                     if (data.success) {
                         detectedEntities = data.entities;
+                        detectedEntityMap = data.entity_map || {};
                         displayDetectedEntities();
+                        renderReviewList();
                     }
                 }
             } catch (error) {
@@ -653,6 +714,67 @@
             }
         }
 
+        function renderReviewList() {
+            const container = document.getElementById('entityReviewList');
+            const block = document.getElementById('reviewBlock');
+            if (!container) return;
+
+            const entries = Object.entries(detectedEntityMap || {});
+            if (entries.length === 0) {
+                block.style.display = 'none';
+                return;
+            }
+            block.style.display = 'block';
+            container.innerHTML = '';
+
+            const groups = {
+                'PERSON': [],
+                'ORG': [],
+                'LOC': [],
+                'ID': [],
+            };
+            for (const [placeholder, original] of entries) {
+                const prefix = placeholder.split('_')[0];
+                groups[prefix] = groups[prefix] || [];
+                groups[prefix].push([placeholder, original]);
+            }
+
+            const labelNames = {'PERSON': 'People', 'ORG': 'Organizations', 'LOC': 'Locations', 'ID': 'IDs'};
+            for (const [key, list] of Object.entries(groups)) {
+                if (!list.length) continue;
+                const group = document.createElement('div');
+                group.className = 'review-group';
+                const title = document.createElement('p');
+                title.className = 'review-group-title';
+                title.textContent = labelNames[key] || key;
+                group.appendChild(title);
+                const wrap = document.createElement('div');
+                for (const [placeholder, original] of list) {
+                    const item = document.createElement('label');
+                    item.className = 'review-item';
+                    item.innerHTML = `<input type="checkbox" class="review-check" data-original="${escapeHtml(original)}" checked> <span>${escapeHtml(original)}</span> <span class="review-placeholder">${escapeHtml(placeholder)}</span>`;
+                    wrap.appendChild(item);
+                }
+                group.appendChild(wrap);
+                container.appendChild(group);
+            }
+        }
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function getSkippedEntities() {
+            const unchecked = document.querySelectorAll('#entityReviewList .review-check:not(:checked)');
+            const skip = new Set();
+            unchecked.forEach((cb) => skip.add(cb.getAttribute('data-original')));
+            return Array.from(skip);
+        }
+
         function showLoading(show) {
             const overlay = document.getElementById('loadingOverlay');
             if (show) {
@@ -680,6 +802,7 @@
             formData.append('anonymize_org', document.getElementById('anonymizeOrg').checked);
             formData.append('anonymize_city', document.getElementById('anonymizeCity').checked);
             formData.append('anonymize_id', document.getElementById('anonymizeId').checked);
+            formData.append('skip_entities', JSON.stringify(getSkippedEntities()));
 
             showLoading(true);
 

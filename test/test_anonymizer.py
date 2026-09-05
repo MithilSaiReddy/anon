@@ -40,6 +40,185 @@ class TestSkipWords:
         assert anonymizer._is_skip_entity("GSTIN") is True
 
 
+class TestCommonWordGuard:
+    @pytest.fixture(autouse=True)
+    def setup(self, anonymizer):
+        self.anon = anonymizer
+
+    def test_single_common_word_detected_as_true(self, anonymizer):
+        assert anonymizer._is_single_common_word("Gross") is True
+        assert anonymizer._is_single_common_word("Employer") is True
+        assert anonymizer._is_single_common_word("Provided") is True
+        assert anonymizer._is_single_common_word("Code") is True
+        assert anonymizer._is_single_common_word("Act") is True
+
+    def test_multi_word_not_common(self, anonymizer):
+        assert anonymizer._is_single_common_word("John Doe") is False
+        assert anonymizer._is_single_common_word("Acme Corp") is False
+
+    def test_gross_not_flagged_as_person(self, anonymizer):
+        anon = anonymizer
+        anon.nlp = MagicMock()
+        anon.nlp.predict_entities.return_value = [
+            {"text": "Gross", "label": "Person"}
+        ]
+        anon.nlp_spacy = MagicMock()
+        anon.nlp_spacy.return_value = MagicMock(ents=[])
+        entities = anon.extract_entities("Overtime paid = 2 * rate of Gross")
+        assert not any(k.startswith("PERSON_") for k in entities)
+
+    def test_code_act_not_flagged_as_org(self, anonymizer):
+        anon = anonymizer
+        anon.nlp = MagicMock()
+        anon.nlp.predict_entities.return_value = [
+            {"text": "Code of Wages Act", "label": "Organization"},
+            {"text": "Code", "label": "Organization"},
+        ]
+        anon.nlp_spacy = MagicMock()
+        anon.nlp_spacy.return_value = MagicMock(ents=[])
+        entities = anon.extract_entities("Under the Code of Wages Act, 2019.")
+        org_keys = [k for k in entities if k.startswith("ORG_")]
+        assert not org_keys, f"Code/Act should not be orgs, got {entities}"
+
+    def test_employer_provided_not_flagged(self, anonymizer):
+        anon = anonymizer
+        anon.nlp = MagicMock()
+        anon.nlp.predict_entities.return_value = [
+            {"text": "Employer", "label": "Organization"},
+            {"text": "Provided", "label": "Organization"},
+        ]
+        anon.nlp_spacy = MagicMock()
+        anon.nlp_spacy.return_value = MagicMock(ents=[])
+        entities = anon.extract_entities("The employer provided the records.")
+        org_keys = [k for k in entities if k.startswith("ORG_")]
+        assert not org_keys, f"Employer/Provided should not be orgs, got {entities}"
+
+    def test_real_company_still_detected(self, anonymizer):
+        anon = anonymizer
+        anon.nlp = MagicMock()
+        anon.nlp.predict_entities.return_value = [
+            {"text": "Acme Corp", "label": "Organization"}
+        ]
+        anon.nlp_spacy = MagicMock()
+        anon.nlp_spacy.return_value = MagicMock(ents=[])
+        entities = anon.extract_entities("Acme Corp Ltd is a company.")
+        org_keys = [k for k in entities if k.startswith("ORG_")]
+        assert org_keys, f"Expected Acme Corp detected, got {entities}"
+
+
+class TestLegalTitleVeto:
+    def test_legal_title_returns_true(self, anonymizer):
+        assert anonymizer._is_legal_doc_title("The Code on Social Security, 2020") is True
+        assert anonymizer._is_legal_doc_title("Payment of Wages Act") is True
+        assert anonymizer._is_legal_doc_title("Industrial Relations Code") is True
+
+    def test_company_suffix_not_vetoed(self, anonymizer):
+        assert anonymizer._is_legal_doc_title("Acme Corp") is False
+        assert anonymizer._is_legal_doc_title("Tech Solutions Inc") is False
+        assert anonymizer._is_legal_doc_title("Acme Corporation") is False
+
+    def test_corporation_title_still_vetoed_if_has_marker(self, anonymizer):
+        # "Corporation" isolates the strong-suffix exemption, so a title like
+        # "The ... Corporation Act" that ends in Act is still vetoed.
+        assert anonymizer._is_legal_doc_title("The Banking Regulation Act") is True
+
+
+class TestStatutoryFragmentGuard:
+    @pytest.fixture(autouse=True)
+    def setup(self, anonymizer):
+        self.anon = anonymizer
+
+    def test_fragment_near_marker_detected(self, anonymizer):
+        assert anonymizer._looks_like_statutory_fragment(
+            "Social Security",
+            "The Code on Social Security, 2020 and the Code of Wages apply.",
+        ) is True
+
+    def test_real_org_far_from_marker_not_detected(self, anonymizer):
+        assert anonymizer._looks_like_statutory_fragment(
+            "State Bank of India",
+            "State Bank of India is regulated by the Banking Regulation Act.",
+        ) is False
+
+    def test_company_with_suffix_exempt(self, anonymizer):
+        assert anonymizer._looks_like_statutory_fragment(
+            "Acme Corp",
+            "Acme Corp is governed by the Payment of Wages Act.",
+        ) is False
+
+    def test_single_word_not_fragment(self, anonymizer):
+        assert anonymizer._looks_like_statutory_fragment(
+            "Wages", "The Code of Wages apply."
+        ) is False
+
+    def test_org_fragment_dropped_from_entities(self, anonymizer):
+        anon = anonymizer
+        anon.nlp = MagicMock()
+        anon.nlp.predict_entities.return_value = [
+            {"text": "Social Security", "label": "Organization"}
+        ]
+        anon.nlp_spacy = MagicMock()
+        anon.nlp_spacy.return_value = MagicMock(ents=[])
+        entities = anon.extract_entities(
+            "The Code on Social Security, 2020 and the Code of Wages apply."
+        )
+        org_keys = [k for k in entities if k.startswith("ORG_")]
+        assert not org_keys, f"Social Security fragment should be dropped, got {entities}"
+
+    def test_real_org_in_act_sentence_kept(self, anonymizer):
+        anon = anonymizer
+        anon.nlp = MagicMock()
+        anon.nlp.predict_entities.return_value = [
+            {"text": "State Bank of India", "label": "Organization"}
+        ]
+        anon.nlp_spacy = MagicMock()
+        anon.nlp_spacy.return_value = MagicMock(ents=[])
+        entities = anon.extract_entities(
+            "State Bank of India is regulated by the Banking Regulation Act."
+        )
+        org_keys = [k for k in entities if k.startswith("ORG_")]
+        assert org_keys, f"State Bank of India should be kept, got {entities}"
+
+
+class TestSkipEntitiesParam:
+    @pytest.fixture(autouse=True)
+    def setup(self, anonymizer):
+        self.anon = anonymizer
+
+    def test_skip_filters_entities(self, anonymizer):
+        anon = anonymizer
+        anon.nlp = MagicMock()
+        anon.nlp.predict_entities.return_value = [
+            {"text": "John Doe", "label": "Person"},
+            {"text": "Acme Corp", "label": "Organization"},
+        ]
+        anon.nlp_spacy = MagicMock()
+        anon.nlp_spacy.return_value = MagicMock(ents=[])
+        entity_map, anon_text, stats = anon.anonymize(
+            "John Doe works at Acme Corp.", 1.0,
+            {"PERSON": True, "ORG": True, "LOC": True, "ID": True},
+            skip_entities={"John Doe"},
+        )
+        assert stats["persons"] == 0
+        assert stats["orgs"] == 1
+        assert not any(k.startswith("PERSON_") for k in entity_map)
+        assert "John Doe" not in entity_map.values()
+
+    def test_no_skip_keeps_all(self, anonymizer):
+        anon = anonymizer
+        anon.nlp = MagicMock()
+        anon.nlp.predict_entities.return_value = [
+            {"text": "John Doe", "label": "Person"}
+        ]
+        anon.nlp_spacy = MagicMock()
+        anon.nlp_spacy.return_value = MagicMock(ents=[])
+        entity_map, anon_text, stats = anon.anonymize(
+            "John Doe here.", 1.0,
+            {"PERSON": True, "ORG": True, "LOC": True, "ID": True},
+        )
+        assert "John Doe" not in anon_text
+
+
 class TestIDPatterns:
     @pytest.fixture(autouse=True)
     def setup(self, anonymizer):

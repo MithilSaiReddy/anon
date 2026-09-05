@@ -127,7 +127,7 @@ Open **http://localhost:8000** in your browser.
 ## How to Use
 
 1. **Upload** a file (`.docx`, `.xlsx`, `.pdf`, `.pptx`)
-2. **Review** detected entities (Person / Organization / Location)
+2. **Review** detected entities — each detected person / organization / location / ID is listed; uncheck any you want to **keep** (e.g. legal titles like "The ___ Code" or single words such as "Gross")
 3. **Choose** which entity types to anonymize and a number multiplier
 4. **Download** the anonymized file + `.bridgekey.json`
 5. **Restore** later by uploading the anonymized file and key
@@ -163,8 +163,8 @@ anon/
 |--------|----------|-------------|
 | `GET` | `/` | Web UI |
 | `GET` | `/health` | Server + model status |
-| `POST` | `/api/detect` | Detect entities in a file (returns preview) |
-| `POST` | `/api/anonymize` | Anonymize a file (entity toggles + number multiplier) |
+| `POST` | `/api/detect` | Detect entities in a file (returns preview + full `entity_map` for review) |
+| `POST` | `/api/anonymize` | Anonymize a file (`entity` toggles, `skip_entities` JSON array, `multiplier`) |
 | `POST` | `/api/restore` | Restore from anonymized file + bridge key |
 | `GET` | `/api/download/{filename}` | Download processed file |
 | `GET` | `/api/download-all/{anon_filename}` | Download anonymized file + bridge key as ZIP |
